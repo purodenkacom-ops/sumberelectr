@@ -1,6 +1,6 @@
 import { adminDb } from '@/utils/firebaseAdmin';
 
-function mapXenditStatus(s) {
+function mapLegacyStatus(s) {
   const S = (s || '').toUpperCase();
   if (S === 'PAID') return 'paid';
   if (S === 'EXPIRED') return 'expired';
@@ -8,6 +8,17 @@ function mapXenditStatus(s) {
   if (S === 'PENDING') return 'pending';
   if (S === 'FAILED' || S === 'CANCELLED' || S === 'CANCELED') return 'failed';
   return S.toLowerCase() || 'pending';
+}
+
+function mapPaymentRequestStatus(eventType, statusRaw) {
+  const E = (eventType || '').toLowerCase();
+  const S = (statusRaw || '').toUpperCase();
+  // Event override takes priority
+  if (E === 'payment.succeeded' || S === 'SUCCEEDED') return 'paid';
+  if (E === 'payment.failed' || S === 'FAILED') return 'failed';
+  if (E === 'payment.expired' || S === 'EXPIRED') return 'expired';
+  if (S === 'PENDING' || S === 'REQUIRES_ACTION') return 'pending';
+  return 'pending';
 }
 
 export default async function handler(req, res) {
@@ -30,17 +41,28 @@ export default async function handler(req, res) {
   try {
     await adminDb.collection('webhooks_logs').add({ source: 'xendit', phase: 'received', createdAt: receivedAt, headers, body });
   } catch {}
+  // Support legacy invoice / VA callbacks AND Payment Requests V2 payloads.
+  const eventType = body.event; // payment.succeeded, payment.failed etc for v2
+  const data = body.data && typeof body.data === 'object' ? body.data : null;
 
-  const externalId = body.external_id || body.merchant_external_id || body.reference_id;
-  const xenditId = body.id || body.invoice_id;
-  const statusRaw = body.status;
-  const amount = Number(body.amount || 0);
+  // Extract identifiers
+  const externalId = body.external_id || body.merchant_external_id || body.reference_id || data?.external_id || data?.reference_id;
+  const paymentRequestId = data?.payment_request_id;
+  const xenditId = body.id || body.invoice_id || data?.id || paymentRequestId;
+  // Status sources differ
+  const statusRaw = data?.status || body.status || (eventType ? eventType.split('.')[1] : '');
+  const amount = Number(data?.amount || body.amount || 0);
 
-  if (!externalId) {
-    return res.status(400).json({ error: 'Missing external_id' });
+  // Determine invoice id we track: prefer reference/external, else payment_request_id
+  const invoiceId = externalId ? String(externalId) : (paymentRequestId ? String(paymentRequestId) : null);
+
+  if (!invoiceId) {
+    // Do NOT 400 (will cause retries). Log and ack.
+    try {
+      await adminDb.collection('webhooks_logs').add({ source:'xendit', phase:'missing_invoice_id', createdAt:new Date(), body, headers });
+    } catch {}
+    return res.status(200).json({ received:true, ignored:true, reason:'no-external-or-reference-id' });
   }
-
-  const invoiceId = String(externalId);
 
   try {
     const ref = adminDb.collection('invoices').doc(invoiceId);
@@ -53,7 +75,7 @@ export default async function handler(req, res) {
     }
 
     const current = snap.data() || {};
-    const mapped = mapXenditStatus(statusRaw);
+    const mapped = eventType ? mapPaymentRequestStatus(eventType, statusRaw) : mapLegacyStatus(statusRaw);
 
     const existing = current.xendit || {};
     const currentStatus = existing.status || current.status || 'pending';
