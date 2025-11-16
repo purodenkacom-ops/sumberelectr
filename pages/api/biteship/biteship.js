@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getShippingCost, getCoordinates } from '@/utils/biteship';
+import { adminDb } from '@/utils/firebaseAdmin';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ message: 'Method not allowed' });
@@ -79,7 +80,25 @@ export default async function handler(req, res) {
     }
 
     // ============ REGULER / NON-INSTANT FLOW ============
-    const finalOriginAreaId = origin_area_id || process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_AREA_ID || process.env.BITESHIP_ORIGIN_AREA_ID;
+    // Try primary pickup override
+    let primaryOriginAreaId = null;
+    let primaryOriginAddress = null;
+    try {
+      const settingsSnap = await adminDb.collection('settings').doc('pickups').get();
+      const primaryId = settingsSnap.exists ? settingsSnap.data().primaryId : null;
+      if (primaryId) {
+        const pSnap = await adminDb.collection('pickup_locations').doc(String(primaryId)).get();
+        if (pSnap.exists) {
+          const p = pSnap.data();
+          primaryOriginAreaId = p.area_id || (p.areaId && p.postal_code ? (p.areaId + 'IDZ' + p.postal_code) : null);
+          primaryOriginAddress = p.address || null;
+        }
+      }
+    } catch (e) {
+      // silent fallback
+    }
+
+    const finalOriginAreaId = primaryOriginAreaId || origin_area_id || process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_AREA_ID || process.env.BITESHIP_ORIGIN_AREA_ID;
     if (!finalOriginAreaId) {
       return res.status(400).json({ message: 'origin_area_id tidak tersedia (set NEXT_PUBLIC_BITESHIP_ORIGIN_AREA_ID atau kirim di body)' });
     }
@@ -96,7 +115,8 @@ export default async function handler(req, res) {
     };
 
     // Optional address (tidak selalu diperlukan Biteship tapi kirim kalau ada)
-    if (origin_address) ratePayload.origin_address = origin_address;
+    if (primaryOriginAddress) ratePayload.origin_address = primaryOriginAddress;
+    else if (origin_address) ratePayload.origin_address = origin_address;
     if (destination_address) ratePayload.destination_address = destination_address;
 
     console.log('[Biteship API] Regular rates payload:', JSON.stringify(ratePayload, null, 2));

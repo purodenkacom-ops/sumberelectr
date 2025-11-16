@@ -113,8 +113,8 @@ const AllProductPage = () => {
   return (
     <div className="min-h-screen bg-gray-50 mt-[-26]">
       <Head>
-        <title>Semua Produk - sumbersuryastore</title>
-        <meta name="description" content="Jelajahi semua peralatan listrik dan elektronik industri di sumbersuryastore. Filter kategori, urutkan berdasarkan harga, dan temukan promo terbaik." />
+        <title>Semua Produk - Purodenka</title>
+        <meta name="description" content="Jelajahi semua peralatan listrik dan elektronik industri di Purodenka. Filter kategori, urutkan berdasarkan harga, dan temukan promo terbaik." />
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListSchema) }} />
       </Head>
 

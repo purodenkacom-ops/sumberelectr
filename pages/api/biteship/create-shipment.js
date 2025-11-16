@@ -77,26 +77,40 @@ export default async function handler(req,res){
     }
     const totalItemsValue = items.reduce((s,x)=> s + x.value * x.quantity, 0);
 
-    // Origin (env-driven) gunakan variabel .env.local yang diminta
-  const SHIPPER_NAME  = process.env.BITESHIP_SHIPPER_NAME  || process.env.BITESHIP_ORIGIN_CONTACT_NAME || 'sumbersuryastore';
-    const SHIPPER_PHONE = process.env.BITESHIP_SHIPPER_PHONE || process.env.BITESHIP_ORIGIN_CONTACT_PHONE || '089000000000';
-  const SHIPPER_EMAIL = process.env.BITESHIP_SHIPPER_EMAIL || process.env.BITESHIP_ORIGIN_CONTACT_EMAIL || 'noreply@sumbersuryastore.local';
-  const SHIPPER_ORG   = process.env.BITESHIP_SHIPPER_ORG   || process.env.BITESHIP_ORIGIN_ORG || 'sumbersuryastore';
+    // Attempt primary pickup override
+    let pickup = null;
+    try {
+      const settingsSnap = await adminDb.collection('settings').doc('pickups').get();
+      const primaryId = settingsSnap.exists ? settingsSnap.data().primaryId : null;
+      if (primaryId) {
+        const pSnap = await adminDb.collection('pickup_locations').doc(String(primaryId)).get();
+        if (pSnap.exists) pickup = pSnap.data();
+      }
+    } catch (e) {
+      // ignore
+    }
 
-    const originAddress =
+    // Origin (env-driven) with optional pickup override
+    const SHIPPER_NAME  = process.env.BITESHIP_SHIPPER_NAME  || process.env.BITESHIP_ORIGIN_CONTACT_NAME || 'Purodenka';
+    const SHIPPER_PHONE = process.env.BITESHIP_SHIPPER_PHONE || process.env.BITESHIP_ORIGIN_CONTACT_PHONE || '089000000000';
+  const SHIPPER_EMAIL = process.env.BITESHIP_SHIPPER_EMAIL || process.env.BITESHIP_ORIGIN_CONTACT_EMAIL || 'noreply@purodenka.local';
+  const SHIPPER_ORG   = process.env.BITESHIP_SHIPPER_ORG   || process.env.BITESHIP_ORIGIN_ORG || 'Purodenka';
+
+    const originAddress = pickup?.address ||
       process.env.BITESHIP_ORIGIN_ADDRESS ||
       process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_ADDRESS ||
       'Origin Address';
 
     const originPostalCode = Number(
+      pickup?.postal_code ||
       process.env.BITESHIP_ORIGIN_POSTAL ||
       process.env.BITESHIP_ORIGIN_POSTAL_CODE ||
       process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_POSTAL_CODE ||
       12440
     );
 
-    const originLat = parseFloat(process.env.BITESHIP_ORIGIN_LAT || process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_LAT || '');
-    const originLng = parseFloat(process.env.BITESHIP_ORIGIN_LNG || process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_LNG || '');
+    const originLat = pickup?.area?.lat != null ? Number(pickup.area.lat) : parseFloat(process.env.BITESHIP_ORIGIN_LAT || process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_LAT || '');
+    const originLng = pickup?.area?.lng != null ? Number(pickup.area.lng) : parseFloat(process.env.BITESHIP_ORIGIN_LNG || process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_LNG || '');
 
     // Destination
     const destAddr =

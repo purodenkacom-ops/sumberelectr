@@ -93,7 +93,7 @@ export default function ArticleIndex({ articles = [], categories = [] }) {
   return (
     <>
       <Head>
-        <title>Artikel Teknik & Kelistrikan | Sumbersuryastore</title>
+        <title>Artikel Teknik & Kelistrikan | Purodenka</title>
         <meta
           name="description"
           content="Kumpulan artikel seputar teknik listrik, panel, otomasi industri, tips instalasi, dan panduan produk peralatan listrik."

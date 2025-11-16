@@ -9,7 +9,7 @@ export default async function handler(req, res) {
     const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;
     const resp = await fetch(url, {
       headers: {
-        'User-Agent': 'sumbersuryastore-app/1.0 (contact: support@yourdomain.example)',
+        'User-Agent': 'purodenka-app/1.0 (contact: support@yourdomain.example)',
         'Accept': 'application/json'
       }
     });

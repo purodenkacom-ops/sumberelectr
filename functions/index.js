@@ -453,15 +453,27 @@ async function buildDailyLayoutSummary() {
     };
   };
 
+  // Exclude aquarium/fish categories and keywords
+  const excludeKeywords = [
+    'akuarium','aquarium','aquascape','ikan','fish','koi','guppy','cupang','manfish','cichlid','platy','udang','shrimp','pakan','tank','substrat','aerator','filter kolam','heater aquarium','filter aquarium','pompa udara','hias air'
+  ];
+  const isExcluded = (p) => {
+    const blob = [p?.category, p?.categorySlug, p?.name, p?.productSlug]
+      .filter(Boolean)
+      .join(' ')?.toLowerCase() || '';
+    return excludeKeywords.some(k => blob.includes(k));
+  };
+
   // Pool besar untuk shuffle (bukan hanya rating tinggi)
   const poolSize = 100;
   const favoritesPool = all
+    .filter(p => !isExcluded(p))
     .filter(p => (p.rating || 0) >= 4.0 && (p.sold || 0) > 0)
     .sort((a,b) => (b.rating - a.rating) || (b.sold - a.sold))
     .slice(0, poolSize);
 
   // Pool rekomendasi: produk random dari semua yang aktif
-  const recPool = all.filter(p => (p.sold || 0) >= 0);
+  const recPool = all.filter(p => (p.sold || 0) >= 0).filter(p => !isExcluded(p));
 
   // Seeded shuffle (berubah setiap hari)
   const seedString = today;
@@ -474,7 +486,7 @@ async function buildDailyLayoutSummary() {
   const recommendations = shuffleDet(recPool).slice(0,12).map(leanProduct);
 
   // Schema builder
-  const BASE_URL = (process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://www.sumbersuryastore').replace(/\/$/, '');
+  const BASE_URL = (process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://www.purodenka.com').replace(/\/$/, '');
   const productToSchema = (p) => {
     const variant = Array.isArray(p.sizeVariants) && p.sizeVariants.length ? p.sizeVariants[0] : null;
     const price = variant?.priceRetail ?? variant?.priceWholesale ?? null;

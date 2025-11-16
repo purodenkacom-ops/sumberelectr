@@ -152,7 +152,7 @@ export default function LoginPage() {
     <div className="flex items-center justify-center min-h-screen bg-white">
       <div className="w-full max-w-md p-8 rounded-2xl shadow-2xl border border-red-100 bg-white/80 backdrop-blur-sm">
         <h1 className="text-3xl font-extrabold text-center text-primary mb-8 tracking-tight">
-          Sign in to <span className="text-dark">Sumbersuryastore</span>
+          Sign in to <span className="text-dark">Purodenka</span>
         </h1>
 
         {error && (

@@ -26,6 +26,9 @@ import Image from 'next/image';
 // PAGE_SIZE
 const PAGE_SIZE = 30;
 
+// Disable any new COD actions from admin UI
+const COD_DISABLED = true;
+
 // STATUS
 const STATUS_OPTIONS = [
   'draft','waiting','awaiting_payment','paid','packed','shipped','completed','cancellation_requested','cancelled','returned','expired'
@@ -1437,7 +1440,7 @@ export default function AdminOrdersPage() {
                         {activeTab === 'awaiting_payment' && (
                           <>
                             {/* Approve COD */}
-                            {cod && o.status === 'waiting' && !o.codOrderId && (
+                            {!COD_DISABLED && cod && o.status === 'waiting' && !o.codOrderId && (
                               <button
                                 onClick={() => setPendingAction({ type: 'approveCod', order: o })}
                                 disabled={(rowActionId && rowActionId !== o.id) || actionLoading}
@@ -1519,7 +1522,7 @@ export default function AdminOrdersPage() {
                                 <option key={s} value={s}>{STATUS_LABEL[s]}</option>
                               ))}
                             </select>
-                            {cod && o.status === 'waiting' && !o.codOrderId && (
+                            {!COD_DISABLED && cod && o.status === 'waiting' && !o.codOrderId && (
                               <button
                                 onClick={() => setPendingAction({ type: 'approveCod', order: o })}
                                 disabled={(rowActionId && rowActionId !== o.id) || actionLoading}

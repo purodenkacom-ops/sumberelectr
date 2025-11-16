@@ -1,4 +1,4 @@
-# robots.txt for sumbersuryastore
+# robots.txt for Purodenka
 # Update the Sitemap URL if you generate one (optional)
 
 User-agent: *
@@ -23,4 +23,4 @@ Disallow: /product/payment/
 Disallow: /search
 
 # Optional: point to your sitemap if available
-Sitemap: https://www.sumbersuryastore/sitemap.xml
+Sitemap: https://www.purodenka.com/sitemap.xml

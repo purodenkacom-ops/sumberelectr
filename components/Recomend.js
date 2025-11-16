@@ -14,6 +14,17 @@ export default function Recomend({ items: initialItems = [] }) {
   const [isDesktop, setIsDesktop] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Exclude aquarium/fish categories and keywords
+  const excludeKeywords = [
+    'akuarium','aquarium','aquascape','ikan','fish','koi','guppy','cupang','manfish','cichlid','platy','udang','shrimp','pakan','tank','substrat','aerator','filter kolam','heater aquarium','filter aquarium','pompa udara','hias air'
+  ];
+  const isExcluded = (p) => {
+    const blob = [p?.category, p?.categorySlug, p?.name, p?.productSlug]
+      .filter(Boolean)
+      .join(' ')?.toLowerCase() || '';
+    return excludeKeywords.some(k => blob.includes(k));
+  };
+
   // Watch viewport for desktop breakpoint
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -28,6 +39,7 @@ export default function Recomend({ items: initialItems = [] }) {
 
   useEffect(() => {
     if (initialItems.length) {
+      setItems(initialItems.filter(p => !isExcluded(p)));
       setLoading(false);
       return;
     }
@@ -37,7 +49,9 @@ export default function Recomend({ items: initialItems = [] }) {
         const q = query(collection(firestore, 'products'), orderBy('sold', 'asc'), limit(100));
         const snap = await getDocs(q);
         const arr = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        const pool = arr.map(p => ({ ...p, sold: Number(p.sold) || 0 }));
+        const pool = arr
+          .filter(p => !isExcluded(p))
+          .map(p => ({ ...p, sold: Number(p.sold) || 0 }));
         for (let i = pool.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -70,7 +84,7 @@ export default function Recomend({ items: initialItems = [] }) {
             <FontAwesomeIcon icon={faWandMagicSparkles} className="w-3.5 h-3.5" />
           </span>
           <h3 className="text-lg md:text-2xl font-extrabold tracking-tight bg-gradient-to-r from-blueLight to-blueMedium bg-clip-text text-transparent">
-            Rekomendasi untuk akuarium kamu
+            Rekomendasi Peralatan Listrik Pilihan
           </h3>
         </div>
         {loading ? (

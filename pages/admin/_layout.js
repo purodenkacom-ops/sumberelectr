@@ -126,7 +126,7 @@ export default function AdminLayout({ children, title = 'Admin' }) {
       <aside className={`relative w-64 max-w-full bg-red-700 text-white flex flex-col p-4 space-y-2 shadow-2xl transform transition-transform duration-300
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex items-center justify-between mb-8">
-          <h2 className="text-xl font-bold">Sumbersuryastore</h2>
+          <h2 className="text-xl font-bold">Purodenka</h2>
           <button onClick={() => setSidebarOpen(false)} className="p-2 hover:bg-red-600 rounded-md">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
@@ -164,7 +164,7 @@ export default function AdminLayout({ children, title = 'Admin' }) {
       style={{ left: 0, top: 0, bottom: 0 }}
     >
       <div className={`flex items-center justify-between mb-8 mt-5 px-4 ${minimized ? 'justify-center' : ''}`}>
-  {!minimized && <h2 className="text-xl font-bold">Sumbersuryastore</h2>}
+  {!minimized && <h2 className="text-xl font-bold">Purodenka</h2>}
         <button
           aria-label="Toggle sidebar"
           onClick={() => setMinimized((v) => !v)}

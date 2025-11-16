@@ -38,17 +38,17 @@ export async function getServerSideProps(context) {
 
 export default function CategoryPage({ category, products }) {
   const readableCategory = category.replace(/-/g, ' ');
-  const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://www.sumbersuryastore').replace(/\/$/, '');
-  const title = `Kategori ${readableCategory} | sumbersuryastore`;
-  const description = `Lihat koleksi peralatan listrik kategori ${readableCategory} di sumbersuryastore. Temukan MCB, contactor, relay, power supply, kabel/wiring duct, saklar, dan aksesori panel dengan harga kompetitif.`;
+  const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://www.purodenka.com').replace(/\/$/, '');
+  const title = `Kategori ${readableCategory} | Purodenka`;
+  const description = `Lihat koleksi peralatan listrik kategori ${readableCategory} di Purodenka. Temukan MCB, contactor, relay, power supply, kabel/wiring duct, saklar, dan aksesori panel dengan harga kompetitif.`;
 
   return (
     <>
       <Head>
         <title>{title}</title>
         <meta name="description" content={description} />
-        <meta name="robots" content="index, follow" />
-  <meta name="keywords" content={`kategori ${readableCategory}, peralatan listrik, mcb, contactor, power supply, kabel duct, sumbersuryastore`} />
+          <meta name="robots" content="index, follow" />
+        <meta name="keywords" content={`kategori ${readableCategory}, peralatan listrik, mcb, contactor, power supply, kabel duct, Purodenka`} />
         <link rel="canonical" href={`${SITE_URL}/category/${category}`} />
         <meta property="og:title" content={title} />
         <meta property="og:description" content={description} />

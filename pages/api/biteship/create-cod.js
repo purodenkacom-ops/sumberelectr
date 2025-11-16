@@ -34,6 +34,11 @@ function normalizeCourierType(serviceCode='') {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
+  // Permanently disable COD endpoint
+  return res.status(410).json({
+    error: 'COD telah dinonaktifkan',
+    message: 'Metode Cash on Delivery (COD) tidak lagi tersedia. Silakan gunakan pembayaran Xendit (Transfer/VA/QRIS/e-Wallet).'
+  });
   try {
     const {
       invoiceId,

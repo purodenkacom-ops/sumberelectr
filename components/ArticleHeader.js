@@ -13,12 +13,12 @@ export default function ArticleHeader({ search, setSearch }) {
         <Link href="/" className="flex items-center gap-2">
           <img
             src="/logo.png"
-            alt="Logo Sumbersuryastore"
+            alt="Logo Purodenka"
             className="h-12 w-12 rounded-full border border-white/30"
             style={{ objectFit: 'cover' }}
           />
           <span className="font-bold text-2xl text-white tracking-tight">
-            Sumbersuryastore
+            Purodenka
           </span>
         </Link>
         {/* Spacer */}

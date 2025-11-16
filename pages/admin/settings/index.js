@@ -22,6 +22,7 @@ import {
   getDoc
 } from 'firebase/firestore';
 import Image from 'next/image';
+import AreaSelect from '@/components/AreaSelect';
 
 export default function AdminSettingsPage() {
   // Telegram chat ID admin management
@@ -48,6 +49,23 @@ export default function AdminSettingsPage() {
   const [waError, setWaError] = useState('');
   const [waOk, setWaOk] = useState('');
   const [rotationIndex, setRotationIndex] = useState(0); // index aktif sekarang
+
+  // Pickup Locations for Biteship
+  const [pickupList, setPickupList] = useState([]);
+  const [pickupPrimaryId, setPickupPrimaryId] = useState('');
+  const [pickupLoading, setPickupLoading] = useState(false);
+  const [pickupError, setPickupError] = useState('');
+  const [pickupOk, setPickupOk] = useState('');
+  const [newPickup, setNewPickup] = useState({
+    name: '',
+    contactName: '',
+    contactPhone: '',
+    address: '',
+    area: null,
+    postal_code: ''
+  });
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState(null);
 
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (u) => {
@@ -93,6 +111,28 @@ export default function AdminSettingsPage() {
       setWaNumbers([]);
       setRotationIndex(0);
     }).finally(() => setWaLoading(false));
+  }, [isAdmin]);
+
+  // Load Pickup Locations and primary setting via API (avoid client rules issues)
+  useEffect(() => {
+    if (isAdmin !== true) return;
+    const load = async () => {
+      setPickupLoading(true);
+      try {
+        const r = await fetch('/api/admin/pickups');
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Gagal memuat pickup');
+        setPickupList(Array.isArray(data.list) ? data.list : []);
+        setPickupPrimaryId(data.primaryId || '');
+      } catch (e) {
+        setPickupError(e.message || 'Gagal memuat pickup');
+        setPickupList([]);
+        setPickupPrimaryId('');
+      } finally {
+        setPickupLoading(false);
+      }
+    };
+    load();
   }, [isAdmin]);
 
   // Add chatId
@@ -223,6 +263,162 @@ export default function AdminSettingsPage() {
       setWaError(e.message || 'Gagal menggilir nomor.');
     } finally {
       setWaLoading(false); setTimeout(() => setWaOk(''), 2000);
+    }
+  };
+
+  // ===== Pickup Locations Handlers =====
+  const handleAreaSelect = (area) => {
+    setNewPickup(prev => ({
+      ...prev,
+      area,
+      postal_code: area?.postal_code || prev.postal_code || ''
+    }));
+  };
+
+  const addPickup = async (e) => {
+    e.preventDefault();
+    setPickupError(''); setPickupOk('');
+    const p = newPickup;
+    if (!p.name.trim()) { setPickupError('Nama lokasi wajib.'); return; }
+    if (!p.address.trim()) { setPickupError('Alamat wajib.'); return; }
+    if (!p.area?.id) { setPickupError('Pilih area melalui pencarian.'); return; }
+    try {
+      setPickupLoading(true);
+      const r = await fetch('/api/admin/pickups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'add',
+          name: p.name,
+          contactName: p.contactName,
+          contactPhone: p.contactPhone,
+          address: p.address,
+          area: p.area,
+          postal_code: p.postal_code
+        })
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Gagal menambah lokasi');
+      // reload list
+      const listResp = await fetch('/api/admin/pickups');
+      const listData = await listResp.json();
+      if (listResp.ok) {
+        setPickupList(Array.isArray(listData.list) ? listData.list : []);
+        setPickupPrimaryId(listData.primaryId || '');
+      }
+      setNewPickup({ name:'', contactName:'', contactPhone:'', address:'', area:null, postal_code:'' });
+      setPickupOk('Lokasi penjemputan ditambah.');
+    } catch (e) {
+      setPickupError(e.message || 'Gagal menambah lokasi.');
+    } finally {
+      setPickupLoading(false);
+      setTimeout(()=> setPickupOk(''), 2000);
+    }
+  };
+
+  const removePickup = async (id) => {
+    if (!id) return;
+    if (!confirm('Hapus lokasi penjemputan ini?')) return;
+    try {
+      setPickupLoading(true); setPickupError(''); setPickupOk('');
+      const r = await fetch('/api/admin/pickups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'remove', id })
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Gagal hapus lokasi');
+      // reload list
+      const listResp = await fetch('/api/admin/pickups');
+      const listData = await listResp.json();
+      if (listResp.ok) {
+        setPickupList(Array.isArray(listData.list) ? listData.list : []);
+        setPickupPrimaryId(listData.primaryId || '');
+      }
+      setPickupOk('Lokasi dihapus.');
+    } catch (e) {
+      setPickupError(e.message || 'Gagal hapus lokasi.');
+    } finally {
+      setPickupLoading(false);
+      setTimeout(()=> setPickupOk(''), 2000);
+    }
+  };
+
+  const setPrimaryPickup = async (id) => {
+    if (!id) return;
+    try {
+      setPickupLoading(true); setPickupError(''); setPickupOk('');
+      const r = await fetch('/api/admin/pickups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'setPrimary', id })
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Gagal menetapkan alamat utama');
+      setPickupPrimaryId(data.primaryId || id);
+      setPickupOk('Alamat utama diperbarui.');
+    } catch (e) {
+      setPickupError(e.message || 'Gagal menetapkan alamat utama.');
+    } finally {
+      setPickupLoading(false);
+      setTimeout(()=> setPickupOk(''), 2000);
+    }
+  };
+
+  const startEditPickup = (row) => {
+    setEditingId(row.id);
+    setEditDraft({
+      name: row.name || '',
+      contactName: row.contactName || '',
+      contactPhone: row.contactPhone || '',
+      address: row.address || '',
+      postal_code: row.postal_code || '',
+      area: row.area || null
+    });
+  };
+
+  const cancelEditPickup = () => {
+    setEditingId(null);
+    setEditDraft(null);
+  };
+
+  const saveEditPickup = async (id) => {
+    if (!id || !editDraft) return;
+    if (!editDraft.name.trim()) { alert('Nama wajib.'); return; }
+    if (!editDraft.address.trim()) { alert('Alamat wajib.'); return; }
+    if (!editDraft.area?.id) { alert('Pilih area.'); return; }
+    try {
+      setPickupLoading(true);
+      const r = await fetch('/api/admin/pickups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          id,
+          name: editDraft.name,
+          contactName: editDraft.contactName,
+          contactPhone: editDraft.contactPhone,
+          address: editDraft.address,
+          area: editDraft.area,
+          postal_code: editDraft.postal_code
+        })
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Gagal menyimpan perubahan');
+      // reload list
+      const listResp = await fetch('/api/admin/pickups');
+      const listData = await listResp.json();
+      if (listResp.ok) {
+        setPickupList(Array.isArray(listData.list) ? listData.list : []);
+        setPickupPrimaryId(listData.primaryId || '');
+      }
+      setPickupOk('Lokasi diperbarui.');
+      cancelEditPickup();
+    } catch (e) {
+      setPickupError(e.message || 'Gagal menyimpan perubahan.');
+    } finally {
+      setPickupLoading(false);
+      setTimeout(()=> setPickupOk(''), 2000);
     }
   };
 
@@ -540,6 +736,133 @@ export default function AdminSettingsPage() {
             </div>
           )}
           <p className="mt-3 text-[11px] text-gray-500 leading-relaxed">Nomor pertama dianggap <strong>utama</strong>. Tombol gilir akan memutar index aktif sehingga fitur frontend bisa memilih nomor WA yang berbeda agar beban CS tersebar.</p>
+        </div>
+
+        {/* Pickup Locations Section */}
+        <div className="mb-8 p-4 bg-white border rounded-lg shadow-sm">
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">Alamat Penjemputan (Pickup) Biteship</h2>
+          <form onSubmit={addPickup} className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Nama Lokasi</label>
+                <input
+                  className="w-full px-3 py-2 text-sm border rounded"
+                  placeholder="Contoh: Gudang Utama"
+                  value={newPickup.name}
+                  onChange={e=> setNewPickup(prev=>({...prev, name:e.target.value}))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Kode Pos</label>
+                <input
+                  className="w-full px-3 py-2 text-sm border rounded"
+                  placeholder="Contoh: 12345"
+                  value={newPickup.postal_code}
+                  onChange={e=> setNewPickup(prev=>({...prev, postal_code:e.target.value}))}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Nama Kontak (opsional)</label>
+                <input
+                  className="w-full px-3 py-2 text-sm border rounded"
+                  value={newPickup.contactName}
+                  onChange={e=> setNewPickup(prev=>({...prev, contactName:e.target.value}))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Telepon Kontak (opsional)</label>
+                <input
+                  className="w-full px-3 py-2 text-sm border rounded"
+                  value={newPickup.contactPhone}
+                  onChange={e=> setNewPickup(prev=>({...prev, contactPhone:e.target.value}))}
+                  placeholder="62812xxxxxxx"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Alamat Detail</label>
+              <textarea
+                rows={2}
+                className="w-full px-3 py-2 text-sm border rounded"
+                placeholder="Nama jalan, RT/RW, patokan"
+                value={newPickup.address}
+                onChange={e=> setNewPickup(prev=>({...prev, address:e.target.value}))}
+              />
+            </div>
+            <AreaSelect label="Area (Biteship)" onSelect={handleAreaSelect} />
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                className="px-4 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                disabled={pickupLoading}
+              >Tambah Lokasi</button>
+            </div>
+          </form>
+          {pickupError && <div className="mt-2 text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded">{pickupError}</div>}
+          {pickupOk && <div className="mt-2 text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded">{pickupOk}</div>}
+
+          <div className="mt-4 border-t pt-3">
+            {pickupLoading && <div className="text-xs text-gray-500">Memuat lokasi…</div>}
+            {(!pickupLoading && pickupList.length === 0) && (
+              <div className="text-xs text-gray-500">Belum ada alamat penjemputan.</div>
+            )}
+            <ul className="divide-y">
+              {pickupList.map(row => {
+                const isPrimary = pickupPrimaryId && pickupPrimaryId === row.id;
+                return (
+                  <li key={row.id} className="py-3">
+                    {editingId === row.id ? (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <input className="px-3 py-2 text-sm border rounded" value={editDraft.name} onChange={e=> setEditDraft(prev=>({...prev, name:e.target.value}))} />
+                          <input className="px-3 py-2 text-sm border rounded" value={editDraft.postal_code} onChange={e=> setEditDraft(prev=>({...prev, postal_code:e.target.value}))} />
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <input className="px-3 py-2 text-sm border rounded" placeholder="Nama kontak" value={editDraft.contactName} onChange={e=> setEditDraft(prev=>({...prev, contactName:e.target.value}))} />
+                          <input className="px-3 py-2 text-sm border rounded" placeholder="Telepon kontak" value={editDraft.contactPhone} onChange={e=> setEditDraft(prev=>({...prev, contactPhone:e.target.value}))} />
+                        </div>
+                        <textarea rows={2} className="w-full px-3 py-2 text-sm border rounded" value={editDraft.address} onChange={e=> setEditDraft(prev=>({...prev, address:e.target.value}))} />
+                        <div>
+                          <AreaSelect label="Ganti Area (opsional)" onSelect={area => setEditDraft(prev=>({...prev, area, postal_code: area?.postal_code || prev.postal_code}))} />
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                          <button type="button" className="px-3 py-2 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 border" onClick={cancelEditPickup}>Batal</button>
+                          <button type="button" className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700" onClick={()=> saveEditPickup(row.id)}>Simpan</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                            {row.name}
+                            {isPrimary && <span className="text-[10px] px-2 py-[2px] rounded-full bg-teal-100 text-teal-700">Utama</span>}
+                          </div>
+                          <div className="text-[11px] text-gray-600">
+                            {row.address}
+                          </div>
+                          <div className="text-[11px] text-gray-500">
+                            Area: {row?.area?.name || '-'}, {row?.area?.city_name || '-'} — {row?.area?.province || '-'} • {row?.postal_code || row?.area?.postal_code || '-'}
+                          </div>
+                          {(row.contactName || row.contactPhone) && (
+                            <div className="text-[11px] text-gray-500">Kontak: {row.contactName || '-'} {row.contactPhone ? `• ${row.contactPhone}` : ''}</div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {!isPrimary && (
+                            <button type="button" className="px-3 py-1 text-[11px] rounded bg-teal-600 text-white hover:bg-teal-700" onClick={()=> setPrimaryPickup(row.id)}>Jadikan Utama</button>
+                          )}
+                          <button type="button" className="px-3 py-1 text-[11px] rounded bg-gray-100 text-gray-700 hover:bg-gray-200 border" onClick={()=> startEditPickup(row)}>Ubah</button>
+                          <button type="button" className="px-3 py-1 text-[11px] rounded bg-red-50 text-red-600 hover:bg-red-100" onClick={()=> removePickup(row.id)}>Hapus</button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         </div>
 
         {/* Existing Category Section */}

@@ -163,7 +163,7 @@ export default function AdminDashboard() {
           {/* Ringkasan */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-10">
             <StatCard label="Active Products" value={productCount} />
-            <StatCard label="Waiting COD" value={invoiceCounts.waiting} />
+            <StatCard label="Menunggu Konfirmasi" value={invoiceCounts.waiting} />
             <StatCard label="Belum Bayar" value={invoiceCounts.awaiting_payment} />
             <StatCard label="Dikemas / Dikirim" value={invoiceCounts.packed + invoiceCounts.shipped} />
             <StatCard label="Selesai" value={invoiceCounts.completed} />
@@ -181,7 +181,7 @@ export default function AdminDashboard() {
             <ul className="space-y-2 text-sm text-gray-700">
               <li>• Kelola Produk</li>
               <li>• Verifikasi & Manajemen Pengguna</li>
-              <li>• Monitor Invoice & COD Approval</li>
+              <li>• Monitor Invoice & Pembayaran</li>
               <li>• Kelola Voucher & Banner Promosi</li>
               <li>• Laporan Penjualan (pengembangan)</li>
             </ul>

@@ -1,4 +1,4 @@
-const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.sumbersuryastore';
+const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.purodenka.com';
 
 function xmlEscape(str = '') {
   return String(str)

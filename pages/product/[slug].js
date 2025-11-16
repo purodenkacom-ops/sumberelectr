@@ -29,7 +29,7 @@ import Image from 'next/image';
 import { useDiscounts } from '@/context/DiscountContext';
 
 // pastikan NEXT_PUBLIC_SITE_URL sudah di set di .env
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.sumbersuryastore';
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.purodenka.com';
 
 function formatIDR(n) {
   const v = Number(n || 0);
@@ -164,7 +164,7 @@ const SingleProductPage = ({ product, relatedProducts, crossProducts, reviews: i
         image: product.images?.[0] || '',
         weight: Number(product.weight) || 0,
         buyerName,
-        sellerName: 'sumbersuryastore',
+        sellerName: 'Purodenka',
         sellerLogo: '/logo.png',
         buyerId: user.uid
       };
@@ -223,7 +223,7 @@ const SingleProductPage = ({ product, relatedProducts, crossProducts, reviews: i
     image: absoluteImages,
     description,
     sku: product.id,
-    brand: { "@type": "Brand", name: "sumbersuryastore" },
+    brand: { "@type": "Brand", name: "Purodenka" },
     offers: {
       "@type": "AggregateOffer",
       url: shareUrl,
@@ -422,8 +422,8 @@ const SingleProductPage = ({ product, relatedProducts, crossProducts, reviews: i
         <meta property="og:title" content={title}/>
         <meta name="og:product:id" content={product.id} />
         <meta property="og:description" content={description}/>
-        <meta property="og:type" content="product"/>
-  <meta property="og:site_name" content="sumbersuryastore"/>
+          <meta property="og:type" content="product"/>
+        <meta property="og:site_name" content="Purodenka"/>
         {ogImages.map((img, i) => (
           <meta key={`ogimg-${i}`} property="og:image" content={img} />
         ))}

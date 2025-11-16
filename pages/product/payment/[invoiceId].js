@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { doc, getDoc, updateDoc, serverTimestamp, arrayUnion, arrayRemove, collection, getDocs, query, where, runTransaction, increment, setDoc } from 'firebase/firestore'; // (array ops optional)
-import { getCoordinates, isProvinceCodEligible } from '@/utils/biteship';
+import { getCoordinates } from '@/utils/biteship';
 import { auth, firestore } from '@/utils/firebase'; // 1. Pastikan 'auth' di-import
 import { onAuthStateChanged } from 'firebase/auth'; // 1. Import onAuthStateChanged
 // Navbar and Footer intentionally omitted on payment page to provide a focused checkout flow
@@ -20,14 +20,15 @@ const COURIERS = [
   { code: 'lalamove', label: 'Lalamove (Instant)' },
   // { code: 'jne_trucking', label: 'JNE Trucking' }, // DIHAPUS
 ];
-const COD_ALLOWED_COURIERS = ['jne', 'tiki', 'sicepat', 'anteraja'];
+// COD removed: no allowed couriers needed
 
 const ORIGIN_LAT = Number(process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_LAT);
 const ORIGIN_LNG = Number(process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_LNG);
 const INSTANT_RADIUS_KM = 30;
 
-const COD_FEE_RATE = 0.05; // sebelumnya 0.04, sekarang 5%
-const COD_PENDING_STATUS = 'waiting'; // status baru: menunggu otorisasi admin
+const COD_DISABLED = true; // COD permanently disabled
+// const COD_FEE_RATE = 0.05; // no longer used
+// const COD_PENDING_STATUS = 'waiting'; // no longer used
 const TRANSFER_FEE = 4000; // Biaya pembayaran untuk metode Xendit/Transfer
 
 // Haversine
@@ -152,14 +153,12 @@ export default function PaymentPage() {
   const [userInstantCoord, setUserInstantCoord] = useState(null); // koordinat tersimpan di user
   const [autoUsingSavedInstant, setAutoUsingSavedInstant] = useState(false);
   const [geocodingLoading, setGeocodingLoading] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState('xendit'); // 'cod' | 'xendit'
+  const [paymentMethod, setPaymentMethod] = useState('xendit'); // single method: 'xendit'
   // === FIX: Tambahkan alias supaya tidak ReferenceError ===
   // Gunakan satu sumber kebenaran (codEligible). Jika nanti ada logika tambahan,
   // tinggal ubah perhitungan effectiveCodEligible di sini.
-  const [codEligible, setCodEligible] = useState(false);
-  const effectiveCodEligible = codEligible; // <--- ADD THIS LINE (sebelum pertama kali digunakan)
-
-  const [codFee, setCodFee] = useState(0);
+  // COD removed
+  const effectiveCodEligible = false;
   const [provinceDetected, setProvinceDetected] = useState('');
   const [provinceDebug, setProvinceDebug] = useState('');
   const mapContainerRef = typeof window !== 'undefined' ? (window._instantMapRef ||= { current:null }): {current:null};
@@ -666,8 +665,7 @@ export default function PaymentPage() {
     }
 
     const baseTotalCalc = basePreviewTotal;
-    const finalCodFee = (paymentMethod === 'cod' && effectiveCodEligible) ? previewCodFee : 0;
-    const finalGrand = baseTotalCalc + finalCodFee;
+    const finalGrand = baseTotalCalc + (paymentMethod === 'xendit' ? TRANSFER_FEE : 0);
 
     const shippingSelectionData = {
       courier: svc.courier_code || selectedCourier,
@@ -752,57 +750,7 @@ export default function PaymentPage() {
   };
   // ====== END PATCH handleSaveShipping ======
 
-  // ====== OPTIONAL: Simpan fungsi createCodOrder untuk dipakai admin (tidak dipanggil buyer) ======
-  // Biarkan createCodOrder ada tapi JANGAN dipanggil di sisi buyer sekarang.
-  // Anda bisa memindahkannya ke halaman admin saat menyetujui COD.
-  const createCodOrder = async ({ svc, collectAmount }) => {
-    try {
-      const resp = await fetch('/api/biteship/create-cod', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          invoiceId,
-          courier_code: svc.courier,
-          courier_service_code: svc.service_code,
-          buyer: {
-            name: user?.name || invoice.buyerName,
-            phone: user?.phone || invoice.buyerPhone,
-            email: user?.email || invoice.buyerEmail
-          },
-          destination_address: user?.address || invoice?.buyerAddress || invoice?.destinationAddress,
-          destination_postal_code: invoice?.shippingAddress?.postal_code,
-          items: invoice.items,
-          cod_amount: collectAmount
-        })
-      });
-      const data = await resp.json();
-      if (!resp.ok) {
-        console.error('Create COD order failed:', data);
-        alert('Gagal membuat pesanan COD.');
-        return;
-      }
-
-      await updateDoc(doc(firestore, 'invoices', String(invoiceId)), {
-        codOrderId: data.order?.id,
-        waybillId: data.order?.courier?.waybill_id,
-        biteshipRaw: data.order,
-        status: 'packed', // pastikan tetap 'packed'
-        updatedAt: serverTimestamp()
-      });
-
-      setInvoice(prev => ({
-        ...prev,
-        codOrderId: data.order?.id,
-        waybillId: data.order?.courier?.waybill_id,
-        biteshipRaw: data.order,
-        status: 'packed'
-      }));
-      alert('Pesanan COD berhasil dibuat.');
-    } catch (e) {
-      console.error('COD order error', e);
-      alert('Gagal membuat pesanan COD (network).');
-    }
-  };
+  // COD create order removed from buyer page
 
   // PASTIKAN sudah ada:
   // const [userInstantCoord, setUserInstantCoord] = useState(null);
@@ -874,19 +822,7 @@ export default function PaymentPage() {
     setProvinceDebug(`ProvinceDetected="${prov}" via ${source}`);
   }, [invoice, user]);
 
-  // Update COD eligibility based on province detection
-  useEffect(() => {
-    if (!invoice) return;
-    const eligibleProvince = isProvinceCodEligible(provinceDetected);
-    const courierOk = COD_ALLOWED_COURIERS.includes(selectedCourier);
-    const notInstant = !['grab','gojek'].includes(selectedCourier);
-    const ok = eligibleProvince && courierOk && notInstant;
-    setCodEligible(ok);
-    if (paymentMethod === 'cod' && !ok) {
-      setPaymentMethod('prepaid');
-      setCodFee(0);
-    }
-  }, [invoice, provinceDetected, selectedCourier, paymentMethod]);
+  // COD eligibility logic removed
 
   // Hapus item pending dari cart setelah paid atau COD order dibuat (codOrderId) & status bukan draft
   useEffect(() => {
@@ -1329,14 +1265,10 @@ export default function PaymentPage() {
      shippingCost ??
      0);
 
-  const isCOD = paymentMethod === 'cod' && effectiveCodEligible;
-  const isTransfer = paymentMethod === 'xendit';
-  const calculatedCodFee = isCOD
-    ? Math.ceil((baseAmount + shippingCostForCalc) * COD_FEE_RATE)
-    : 0;
-  const calculatedTransferFee = isTransfer ? TRANSFER_FEE : 0;
+  const isTransfer = true; // Only Xendit is available
+  const calculatedTransferFee = TRANSFER_FEE;
 
-  const totalInvoice = baseAmount + shippingCostForCalc + calculatedCodFee + calculatedTransferFee;
+  const totalInvoice = baseAmount + shippingCostForCalc + calculatedTransferFee;
   const subtotalForCalc = rawSubtotal;
   const appliedVoucherDiscount = effectiveVoucherDiscount;
   // === END TOTAL CALCULATION ===
@@ -1386,19 +1318,10 @@ export default function PaymentPage() {
   // Eligibility COD: gunakan variabel effectiveCodEligible yang sudah dideklarasikan di atas (jangan redeclare)
 
   // Preview COD fee (5%) jika user pilih COD
-  const previewCodFee =
-    paymentMethod === 'cod' && effectiveCodEligible
-      ? Math.ceil(basePreviewTotal * COD_FEE_RATE)
-      : 0;
-  const previewTransferFee = paymentMethod === 'xendit' ? TRANSFER_FEE : 0;
+  const previewTransferFee = TRANSFER_FEE;
 
   // Grand total preview untuk tampilan tombol (tidak menimpa totalInvoice final yg sudah dihitung di blok “TOTAL CALCULATION”)
-  const displayGrand =
-    paymentMethod === 'cod'
-      ? basePreviewTotal + previewCodFee
-      : paymentMethod === 'xendit'
-        ? basePreviewTotal + previewTransferFee
-        : basePreviewTotal;
+  const displayGrand = basePreviewTotal + previewTransferFee;
 
   // HITUNG TOTAL DI LUAR BLOK SEMENTARA agar variabel tersedia untuk JSX
   // const subtotalForCalc = invoice?.subtotal ?? (invoice?.items?.reduce((s,i)=> s + (Number(i.price)||0) * (i.quantity||1), 0) || 0);
@@ -1425,53 +1348,7 @@ export default function PaymentPage() {
     router.push('/product/payment/thankyou');
   };
 
-  // === ADD: handleAjukanCOD (sebelumnya undefined) ===
-  const handleAjukanCOD = async () => {
-    if (!invoice) return;
-    if (!shippingConfirmed && !invoice.shippingSelection) {
-      alert('Simpan / konfirmasi pengiriman terlebih dahulu.');
-      return;
-    }
-    if (!codEligible || !effectiveCodEligible) {
-      alert('COD tidak tersedia untuk area / kurir ini.');
-      return;
-    }
-    try {
-      setProcessingPayment(true);
-
-      // Hitung ulang basis + fee
-      const collectBase = baseAmount + shippingCostForCalc; // (subtotal - voucher) + ongkir
-      const fee = Math.ceil(collectBase * COD_FEE_RATE);
-      const grand = collectBase + fee;
-
-      await updateDoc(doc(firestore, 'invoices', String(invoiceId)), {
-        paymentMethod: 'cod',
-        codEligible: true,
-        codFee: fee,
-        grandTotal: grand,
-        status: COD_PENDING_STATUS,          // menunggu otorisasi admin
-        codRequestAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-
-      setInvoice(prev => ({
-        ...prev,
-        paymentMethod: 'cod',
-        codEligible: true,
-        codFee: fee,
-        grandTotal: grand,
-        status: COD_PENDING_STATUS,
-        codRequestAt: new Date()
-      }));
-
-      router.push('/product/payment/thankyou');
-    } catch (e) {
-      console.error('Ajukan COD gagal', e);
-      alert('Gagal mengajukan COD.');
-    } finally {
-      setProcessingPayment(false);
-    }
-  };
+  // handleAjukanCOD removed
   // ...existing code (return JSX below)...
   return (
     <>
@@ -1695,28 +1572,6 @@ export default function PaymentPage() {
         <section className="bg-white rounded-lg shadow p-4 mb-3">
           <h3 className="text-sm font-semibold mb-2">Metode Pembayaran</h3>
           <div className="flex flex-col gap-2 text-xs">
-            <label className={`flex flex-col gap-1 p-2 border rounded ${!codEligible ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
-              <span className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="paymethod"
-                  value="cod"
-                  disabled={!codEligible}
-                  checked={paymentMethod==='cod'}
-                  onChange={()=> setPaymentMethod('cod')}
-                />
-                <span>COD (Bayar di Tempat)</span>
-              </span>
-              <span className="text-[10px] text-gray-500">
-                Kurir: JNE / TIKI / SiCepat / AnterAja. Biaya layanan 5%.
-              </span>
-              {!codEligible && (
-                <span className="text-[10px] text-red-600">
-                  COD tidak tersedia untuk kurir/area ini.
-                </span>
-              )}
-            </label>
-
             <label className="flex flex-col gap-1 p-2 border rounded cursor-pointer">
               <span className="flex items-center gap-2">
                 <input
@@ -1793,12 +1648,6 @@ export default function PaymentPage() {
               <span>- Rp {appliedVoucherDiscount.toLocaleString('id-ID')}</span>
             </div>
           )}
-          {isCOD && calculatedCodFee > 0 && (
-            <div className="flex justify-between text-xs mb-1">
-              <span>Biaya COD (5%)</span>
-              <span>Rp {calculatedCodFee.toLocaleString('id-ID')}</span>
-            </div>
-          )}
           {isTransfer && (
             <div className="flex justify-between text-xs mb-1">
               <span>Biaya Pembayaran</span>
@@ -1808,41 +1657,21 @@ export default function PaymentPage() {
           <div className="flex justify-between text-xs mb-3">
             <span className="font-semibold">Total</span>
             <span className="font-bold text-orange-600">
-              Rp {(subtotalForCalc - appliedVoucherDiscount + shippingCostForCalc + (isCOD ? calculatedCodFee : 0) + (isTransfer ? TRANSFER_FEE : 0)).toLocaleString('id-ID')}
+              Rp {(subtotalForCalc - appliedVoucherDiscount + shippingCostForCalc + (isTransfer ? TRANSFER_FEE : 0)).toLocaleString('id-ID')}
             </span>
           </div>
-
-      {paymentMethod==='cod' ? (
-            effectiveCodEligible ? (
-              <button
-                className={`bg-green-600 text-white px-2 py-2 rounded w-full text-sm font-bold disabled:opacity-50${!shippingConfirmed && !shippingSelection ? ' opacity-50 cursor-not-allowed' : ''}`}
-        disabled={!shippingSelection || editingShipping}
-                onClick={handleAjukanCOD}
-              >
-                Ajukan Pesanan COD
-              </button>
-            ) : (
-              <button
-                className="bg-gray-300 text-gray-600 px-2 py-2 rounded w-full text-sm font-bold cursor-not-allowed"
-                disabled
-              >
-                COD Tidak Tersedia
-              </button>
-            )
-          ) : (
-            <div className="space-y-2">
-              <button
-                className="bg-red-600 text-white px-2 py-2 rounded w-full text-sm font-bold disabled:opacity-50"
-                disabled={xenditLoading || !shippingSelection || editingShipping}
-                onClick={handleCreateXenditPayment}
-              >
-                {xenditLoading ? 'Memproses...' : 'Bayar Sekarang'}
-              </button>
-              {xenditError && (
-                <p className="text-[10px] text-red-600">{xenditError}</p>
-              )}
-            </div>
-          )}
+          <div className="space-y-2">
+            <button
+              className="bg-red-600 text-white px-2 py-2 rounded w-full text-sm font-bold disabled:opacity-50"
+              disabled={xenditLoading || !shippingSelection || editingShipping}
+              onClick={handleCreateXenditPayment}
+            >
+              {xenditLoading ? 'Memproses...' : 'Bayar Sekarang'}
+            </button>
+            {xenditError && (
+              <p className="text-[10px] text-red-600">{xenditError}</p>
+            )}
+          </div>
         </section>
   </main>
 

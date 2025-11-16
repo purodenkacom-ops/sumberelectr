@@ -2,7 +2,7 @@ import React from 'react';
 
 const VisitOurFarm = ({ info }) => {
   const {
-    storeName = 'Sumbersuryastore',
+    storeName = 'Purodenka',
     contactName = '',
     phone = '',
     email = '',
@@ -102,7 +102,7 @@ const VisitOurFarm = ({ info }) => {
             <div className="w-full h-full rounded-xl overflow-hidden shadow-inner ring-1 ring-red-100">
               <iframe
                 src={mapEmbed}
-                title="Lokasi Sumbersuryastore"
+                title="Lokasi Purodenka"
                 loading="lazy"
                 allowFullScreen
                 className="w-full h-full"

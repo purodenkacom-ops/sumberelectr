@@ -1,19 +1,19 @@
-const siteUrlBase = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.sumbersuryastore';
+const siteUrlBase = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.purodenka.com';
 const siteUrl = siteUrlBase.endsWith('/') ? siteUrlBase : `${siteUrlBase}/`;
 
 export default {
   titleTemplate: '%s',
-  defaultTitle: 'sumbersuryastore | Toko Peralatan Listrik & Elektronik Industri • Harga Kompetitif, Barang Asli',
-  description: 'sumbersuryastore adalah toko peralatan listrik dan elektronik industri terpercaya di Indonesia. Tersedia MCB/MCCB, contactor, relay, power supply, rotary switch, sensor, kabel/wiring duct, din rail, aksesori panel listrik, dan banyak lagi. Barang asli bergaransi, harga kompetitif, siap kirim ke seluruh Indonesia.',
+  defaultTitle: 'Purodenka | Toko Peralatan Listrik & Elektronik Industri • Harga Kompetitif, Barang Asli',
+  description: 'Purodenka adalah toko peralatan listrik dan elektronik industri terpercaya di Indonesia. Tersedia MCB/MCCB, contactor, relay, power supply, rotary switch, sensor, kabel/wiring duct, din rail, aksesori panel listrik, dan banyak lagi. Barang asli bergaransi, harga kompetitif, siap kirim ke seluruh Indonesia.',
   openGraph: {
     type: 'website',
     locale: 'id_ID',
     url: siteUrl,
-    site_name: 'sumbersuryastore'
+    site_name: 'Purodenka'
   },
   twitter: {
-    handle: '@sumbersuryastore',
-    site: '@sumbersuryastore',
+    handle: '@purodenka',
+    site: '@purodenka',
     cardType: 'summary_large_image'
   },
   additionalMetaTags: [

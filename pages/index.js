@@ -14,12 +14,12 @@ import Recomend from '@/components/Recomend';
 import HomeArticles from '@/components/HomeArticles';
 // TransactionMarquee import removed (unused currently)
 
-const siteUrlBase = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.sumbersuryastore';
+const siteUrlBase = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.purodenka.com';
 const siteUrl = siteUrlBase.endsWith('/') ? siteUrlBase : `${siteUrlBase}/`;
 
 // NEW: reusable SEO strings for electrical store
-const SEO_TITLE = "sumbersuryastore | Toko Peralatan Listrik & Elektronik Industri • Harga Kompetitif";
-const SEO_DESCRIPTION = "sumbersuryastore adalah toko peralatan listrik dan elektronik industri terpercaya di Indonesia. Tersedia MCB/MCCB, contactor, relay, power supply, rotary switch, sensor, kabel/wiring duct, din rail, saklar, dan aksesori panel listrik. Barang asli bergaransi, siap kirim ke seluruh Indonesia.";
+const SEO_TITLE = "Purodenka | Toko Peralatan Listrik & Elektronik Industri • Harga Kompetitif";
+const SEO_DESCRIPTION = "Purodenka adalah toko peralatan listrik dan elektronik industri terpercaya di Indonesia. Tersedia MCB/MCCB, contactor, relay, power supply, rotary switch, sensor, kabel/wiring duct, din rail, saklar, dan aksesori panel listrik. Barang asli bergaransi, siap kirim ke seluruh Indonesia.";
 const SEO_KEYWORDS = "toko peralatan listrik, elektronik industri, mcb, mccb, contactor, relay, power supply, smps, kabel duct, wiring duct, rotary switch, buzzer panel, din rail, panel listrik, aksesoris panel, sensor, saklar";
 
 
@@ -44,7 +44,7 @@ const Homepage = ({ ogImage, ogImages = [], favoriteFish, recommendations = [], 
   let enriched = Array.isArray(bannerMeta) && bannerMeta.length
     ? bannerMeta.map(b => ({
     url: absUrl(b.url),
-  alt: b.alt && b.alt.trim() ? b.alt.trim() : 'sumbersuryastore - Toko Peralatan Listrik',
+  alt: b.alt && b.alt.trim() ? b.alt.trim() : 'Purodenka - Toko Peralatan Listrik',
         width: Number(b.width) || 1200,
         height: Number(b.height) || 630
       }))
@@ -57,10 +57,10 @@ const Homepage = ({ ogImage, ogImages = [], favoriteFish, recommendations = [], 
       for (const u of ogImages) if (typeof u === 'string' && u.trim()) gather.push(u.trim());
     }
     const dedup = gather.filter((v,i,a) => a.indexOf(v) === i)
-  .map(u => ({ url: absUrl(u), alt: 'sumbersuryastore - Toko Peralatan Listrik', width: 1200, height: 630 }));
+  .map(u => ({ url: absUrl(u), alt: 'Purodenka - Toko Peralatan Listrik', width: 1200, height: 630 }));
     enriched = dedup.slice(0,4);
   }
-  if (!enriched.length) enriched = [{ url: absUrl('logo.png'), alt: 'sumbersuryastore - Toko Peralatan Listrik', width: 1200, height: 630 }];
+  if (!enriched.length) enriched = [{ url: absUrl('logo.png'), alt: 'Purodenka - Toko Peralatan Listrik', width: 1200, height: 630 }];
   const ogPrimaryImage = enriched[0].url;
   const extraOgImages = enriched.slice(1);
   const pickImage = (prod) => {
@@ -121,21 +121,21 @@ const Homepage = ({ ogImage, ogImages = [], favoriteFish, recommendations = [], 
     {
       "@type": "Organization",
       "@id": `${siteUrl}#org`,
-  "name": "sumbersuryastore",
+    "name": "Purodenka",
       "url": siteUrl,
       "logo": `${siteUrl}logo.png`,
       "description": SEO_DESCRIPTION,
-  "slogan": "Toko Peralatan Listrik & Elektronik Industri • Harga Kompetitif",
+    "slogan": "Toko Peralatan Listrik & Elektronik Industri • Harga Kompetitif",
       "sameAs": [
-  "https://www.instagram.com/sumbersuryastore",
-  "https://facebook.com/sumbersuryastore"
+    "https://www.instagram.com/purodenka",
+    "https://facebook.com/purodenka"
       ]
     },
     {
       "@type": "WebSite",
       "@id": `${siteUrl}#website`,
       "url": siteUrl,
-  "name": "sumbersuryastore",
+    "name": "Purodenka",
       "publisher": { "@id": `${siteUrl}#org` },
       "inLanguage": "id-ID",
       "description": SEO_DESCRIPTION,
@@ -169,7 +169,7 @@ const Homepage = ({ ogImage, ogImages = [], favoriteFish, recommendations = [], 
     },
     {
     "@type": "Store",
-  "name": "sumbersuryastore - Toko Peralatan Listrik",
+  "name": "Purodenka - Toko Peralatan Listrik",
       "image": `${siteUrl}logo.png`,
       "url": siteUrl,
       "priceRange": "IDR",
@@ -225,7 +225,7 @@ const Homepage = ({ ogImage, ogImages = [], favoriteFish, recommendations = [], 
            url: siteUrl,
            type: 'website',
            locale: 'id_ID',
-           siteName: 'sumbersuryastore',
+           siteName: 'Purodenka',
            images: enriched.map(b => ({
              url: b.url,
              width: b.width,
@@ -234,8 +234,8 @@ const Homepage = ({ ogImage, ogImages = [], favoriteFish, recommendations = [], 
            }))
          }}
          twitter={{
-           handle: '@sumbersuryastore',
-           site: '@sumbersuryastore',
+           handle: '@purodenka',
+           site: '@purodenka',
            cardType: 'summary_large_image'
          }}
          additionalMetaTags={[
@@ -318,7 +318,7 @@ export async function getStaticProps() {
   let recommendationsSchema = [];
   let articles = [];
   const farmInfo = {
-  storeName: process.env.NEXT_PUBLIC_STORE_NAME || 'Sumbersuryastore',
+  storeName: process.env.NEXT_PUBLIC_STORE_NAME || 'Purodenka',
     contactName: process.env.NEXT_PUBLIC_BITESHIP_SHIPPER_NAME || '',
     phone: process.env.NEXT_PUBLIC_BITESHIP_SHIPPER_PHONE || '',
     email: process.env.NEXT_PUBLIC_BITESHIP_SHIPPER_EMAIL || '',
@@ -343,10 +343,10 @@ export async function getStaticProps() {
       const alts = Array.isArray(data.alts) ? data.alts : [];
       if (Array.isArray(data.images)) {
         data.images.forEach((u, idx) => {
-          if (typeof u === 'string' && u.trim()) {
+              if (typeof u === 'string' && u.trim()) {
             raw.push({
               url: u.trim(),
-              alt: alts[idx] || 'Homepage Banner sumbersuryastore',
+                  alt: alts[idx] || 'Homepage Banner Purodenka',
               width,
               height,
               priority,
@@ -419,9 +419,20 @@ export async function getStaticProps() {
           video: d.video || null
         });
       });
+      // Exclude aquarium/fish categories and keywords
+      const excludeKeywords = [
+        'akuarium','aquarium','aquascape','ikan','fish','koi','guppy','cupang','manfish','cichlid','platy','udang','shrimp','pakan','tank','substrat','aerator','filter kolam','heater aquarium','filter aquarium','pompa udara','hias air'
+      ];
+      const isExcluded = (p) => {
+        const blob = [p?.category, p?.categorySlug, p?.name, p?.productSlug]
+          .filter(Boolean)
+          .join(' ')?.toLowerCase() || '';
+        return excludeKeywords.some(k => blob.includes(k));
+      };
+      const filtered = lean.filter(p => !isExcluded(p));
       const shuffle = arr => arr.sort(() => Math.random() - 0.5);
-      favoriteFish = shuffle([...lean]).slice(0, 8);
-      recommendations = shuffle([...lean]).slice(0, 12);
+      favoriteFish = shuffle([...filtered]).slice(0, 8);
+      recommendations = shuffle([...filtered]).slice(0, 12);
     }
 
     const articleSnap = await adminDb.collection('articles').orderBy('createdAt', 'desc').limit(4).get();

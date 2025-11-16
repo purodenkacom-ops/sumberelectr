@@ -61,7 +61,7 @@ export default function ArticleDetail({ article, related, latest, trending, prod
   }
 
   // SEO
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://example.com";
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://www.purodenka.com";
   const pageUrl = `${siteUrl.replace(/\/$/, "")}/article/${article.slug}`;
   const published = article.createdAt || new Date().toISOString();
   const modified = article.updatedAt || published;
@@ -80,10 +80,10 @@ export default function ArticleDetail({ article, related, latest, trending, prod
     headline: article.title,
     description,
     image: [image],
-    author: { "@type": "Person", name: article.author || "Sumbersuryastore" },
+    author: { "@type": "Person", name: article.author || "Purodenka" },
     publisher: {
       "@type": "Organization",
-      name: "Sumbersuryastore",
+      name: "Purodenka",
       logo: { "@type": "ImageObject", url: `${siteUrl}/logo.png` },
     },
     datePublished: published,
@@ -104,7 +104,7 @@ export default function ArticleDetail({ article, related, latest, trending, prod
   return (
     <>
       <Head>
-        <title>{article.title} | Sumbersuryastore</title>
+        <title>{article.title} | Purodenka</title>
         <meta name="description" content={description} />
         <meta name="keywords" content={keywords} />
         <link rel="canonical" href={pageUrl} />

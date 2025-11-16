@@ -6,7 +6,7 @@ import AreaSelect from '../components/AreaSelect';
 import Link from 'next/link';
 import { sendEmailVerification } from 'firebase/auth';
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.sumbersuryastore';
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.purodenka.com';
 
 export default function RegisterPage() {
   const router = useRouter();
