@@ -33,10 +33,10 @@ const VisitOurFarm = ({ info }) => {
         {/* Info */}
         <div className="flex-1">
           <h2 className="text-2xl font-bold text-red-700 mb-2">
-            Kunjungi Showroom / Gudang Kami
+            Kunjungi Showroom & Gudang Purodenka
           </h2>
           <p className="text-sm text-gray-600 mb-5 lg:mb-6">
-            Kunjungi showroom dan gudang {storeName}. Lihat langsung koleksi peralatan listrik, panel dan aksesorinya, serta konsultasi kebutuhan proyek Anda.
+            Ayo mampir ke lokasi kami dan rasakan pengalaman belanja peralatan listrik yang cepat, lengkap, dan bersahabat. Tim Purodenka siap membantu memilih komponen yang tepat, konsultasi spesifikasi proyek, hingga membuatkan penawaran terbaik. Stok asli bergaransi dan siap kirim di hari yang sama.
           </p>
           <div className="space-y-3 text-sm">
             <div>
@@ -55,7 +55,7 @@ const VisitOurFarm = ({ info }) => {
                 <span className="block text-gray-500 uppercase tracking-wide text-[11px] font-semibold">
                   Alamat
                 </span>
-                <span className="font-medium text-gray-800">
+                <span className="font-medium text-gray-800 whitespace-pre-line">
                   {address}{postal ? `, ${postal}` : ''}
                 </span>
               </div>
@@ -83,18 +83,7 @@ const VisitOurFarm = ({ info }) => {
               </div>
             )}
           </div>
-          {hasCoords && (
-            <div className="mt-5 lg:mt-6">
-              <a
-                href={mapLink}
-                target="_blank"
-                rel="noopener"
-                className="inline-block px-4 py-2 rounded-lg bg-orange-600 text-white text-sm font-medium hover:bg-orange-700 transition"
-              >
-                Buka di Google Maps
-              </a>
-            </div>
-          )}
+          {/* Tombol Google Maps dihilangkan sesuai permintaan */}
         </div>
         {/* Map */}
         <div className="flex-1 min-h-[240px] sm:min-h-[260px] lg:min-h-[320px]">

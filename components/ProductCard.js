@@ -98,7 +98,7 @@ const ProductCard = ({ product, onAddToCart }) => {
     return () => observer.disconnect();
   }, [supabaseVideoUrl]);
 
-  // Toggle showVideo
+  // Toggle video berdasarkan inView
   useEffect(() => {
     if (!supabaseVideoUrl) return;
     if (inView) {

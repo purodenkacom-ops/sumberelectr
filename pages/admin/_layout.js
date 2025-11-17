@@ -21,9 +21,7 @@ const icons = {
   Orders: (
     <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M3 7h18M5 7v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7" /><path d="M9 3v4m6-4v4" /></svg>
   ),
-  'Status Pengiriman': (
-    <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M3 17v-2a4 4 0 0 1 4-4h3m4 0h3a4 4 0 0 1 4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
-  ),
+  
   Chat: (
     <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4-4.03 7-9 7a9.77 9.77 0 0 1-4-.8L3 21l1.8-4A7.96 7.96 0 0 1 3 12c0-4 4.03-7 9-7s9 3 9 7z" /></svg>
   ),
@@ -54,10 +52,8 @@ const navItems = [
   { name: 'Products', href: '/admin/products' },
   { name: 'Benner Setting', href: '/admin/benner' },
   { name: 'Orders', href: '/admin/orders' },
-  { name: 'Status Pengiriman', href: '/admin/shipping' },
   { name: 'Chat', href: '/admin/chat' },
-  { name: 'Statistics', href: '/admin/stats' },
-  { name: 'Voucher', href: '/admin/voucher' },
+    { name: 'Voucher', href: '/admin/voucher' },
   { name: 'Settings', href: '/admin/settings' },
   { name: 'Article Upload', href: '/admin/article-upload' }, // <-- Tambahkan baris ini
 ];

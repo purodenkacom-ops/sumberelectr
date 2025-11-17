@@ -14,7 +14,7 @@ import {
   onSnapshot,
   orderBy
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, deleteObject } from 'firebase/storage';
 import { onAuthStateChanged } from 'firebase/auth';
 import AdminLayout from '../_layout';
 import Link from 'next/link';
@@ -89,6 +89,7 @@ export default function ProductListPage() {
     images: [null, null, null],
     video: '',
     existingImages: ['', '', ''],
+    existingCloudinaryPublicIds: ['', '', ''],
     imageLinks: [] // untuk link gambar eksternal
   });
   const [showImageLinkPopup, setShowImageLinkPopup] = useState(false);
@@ -211,6 +212,58 @@ export default function ProductListPage() {
           }
         }
       }
+      // Helper: derive Cloudinary public_id from a secure_url if not stored
+      const derivePublicIdFromUrl = (url) => {
+        try {
+          if (!url || typeof url !== 'string') return '';
+          const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME || '';
+          if (!cloudName) return '';
+          // Expect pattern: https://res.cloudinary.com/<cloudName>/image/upload/v<version>/<path>.<ext>
+          const basePattern = `res.cloudinary.com/${cloudName}/image/upload/`;
+          const idx = url.indexOf(basePattern);
+          if (idx === -1) return '';
+          let tail = url.substring(idx + basePattern.length);
+          // Strip query params
+          tail = tail.split('?')[0];
+          // Remove leading version segment v123456789/ if present
+          tail = tail.replace(/^v\d+\//, '');
+          // Remove extension
+          const dotIdx = tail.lastIndexOf('.');
+          if (dotIdx !== -1) tail = tail.substring(0, dotIdx);
+          return tail;
+        } catch { return ''; }
+      };
+      // Collect public_ids: prefer stored, fallback derive
+      const publicIds = new Set();
+      if (prod) {
+        if (Array.isArray(prod.cloudinaryPublicIds)) {
+          prod.cloudinaryPublicIds.forEach(pid => { if (pid) publicIds.add(pid); });
+        }
+        if (Array.isArray(prod.images)) {
+          for (const u of prod.images) {
+            if (!u) continue;
+            const maybe = derivePublicIdFromUrl(u);
+            if (maybe && ![...publicIds].some(p => p.endsWith(maybe))) {
+              publicIds.add(maybe);
+            }
+          }
+        }
+      }
+      // Delete Cloudinary images
+      for (const pubId of publicIds) {
+        try {
+          const resp = await fetch('/api/delete-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ public_id: pubId })
+          });
+          if (!resp.ok) {
+            console.warn('Cloudinary delete failed', pubId, resp.status);
+          }
+        } catch (e) {
+          console.warn('Cloudinary delete error', pubId, e?.message || e);
+        }
+      }
       await deleteDoc(doc(firestore, 'products', id));
       setProducts(products.filter((p) => p.id !== id));
     }
@@ -297,6 +350,7 @@ export default function ProductListPage() {
 
     // Upload & compress images
     let imageUrls = [...form.existingImages];
+    let cloudPublicIds = [...form.existingCloudinaryPublicIds];
     // Gabungkan link gambar eksternal ke imageUrls
     if (form.imageLinks && form.imageLinks.length > 0) {
       imageUrls = [...imageUrls, ...form.imageLinks];
@@ -304,11 +358,15 @@ export default function ProductListPage() {
     for (let i = 0; i < 3; i++) {
       if (form.images[i]) {
         const compressed = await compressImage(form.images[i]);
-        const imageRef = ref(storage, `products/${Date.now()}_${form.images[i].name}`);
-        await uploadBytes(imageRef, compressed);
-        const url = await getDownloadURL(imageRef);
+        const fd = new FormData();
+        fd.append('file', compressed);
+        const resp = await fetch('/api/upload-image', { method: 'POST', body: fd });
+        if (!resp.ok) throw new Error('cloudinary upload failed');
+        const data = await resp.json();
+        const url = data?.url;
+        const pubId = data?.public_id || '';
 
-        // If editing, delete old image if replaced
+        // If editing, delete old Firebase Storage image if replaced and was a Firebase URL
         if (editId && form.existingImages[i]) {
           try {
             const match = form.existingImages[i].match(/\/o\/(.*?)\?/);
@@ -320,6 +378,7 @@ export default function ProductListPage() {
           } catch (e) {}
         }
         imageUrls[i] = url;
+        cloudPublicIds[i] = pubId;
       }
     }
 
@@ -348,6 +407,7 @@ export default function ProductListPage() {
       // discount fields removed from save
       description: form.description,
       images: imageUrls,
+      cloudinaryPublicIds: cloudPublicIds,
       video: form.video,
       sku: form.sku || null,
       productSlug,
@@ -398,6 +458,7 @@ export default function ProductListPage() {
         images: [null, null, null],
         video: '',
         existingImages: ['', '', ''],
+        existingCloudinaryPublicIds: ['', '', ''],
         imageLinks: []
       });
       fileInputRefs.forEach((ref) => ref.current && (ref.current.value = ''));
@@ -426,6 +487,7 @@ export default function ProductListPage() {
       images: [null, null, null],
       video: product.video || '',
       existingImages: product.images || ['', '', ''],
+      existingCloudinaryPublicIds: product.cloudinaryPublicIds || ['', '', ''],
       imageLinks: []
     });
     fileInputRefs.forEach((ref) => ref.current && (ref.current.value = ''));

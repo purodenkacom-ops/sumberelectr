@@ -171,8 +171,8 @@ export async function getShippingCost(params = {}) {
       throw new Error('Instant courier requires valid origin/destination coordinates');
     }
 
-    // Enforce max instant radius (default 30km, configurable via env)
-    const maxKm = Number(process.env.INSTANT_MAX_RADIUS_KM || process.env.NEXT_PUBLIC_INSTANT_MAX_RADIUS_KM || 30);
+    // Enforce max instant radius (default 40km, configurable via env)
+    const maxKm = Number(process.env.INSTANT_MAX_RADIUS_KM || process.env.NEXT_PUBLIC_INSTANT_MAX_RADIUS_KM || 40);
     const distKm = haversineKm(oLat, oLng, dLat, dLng);
     if (distKm > maxKm) {
       throw new Error(`Jarak pengantaran melebihi batas ${maxKm} km untuk kurir instant (≈ ${distKm.toFixed(1)} km)`);

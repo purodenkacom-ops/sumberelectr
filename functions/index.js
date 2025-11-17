@@ -10,13 +10,11 @@
 
 // dotenv not required in Cloud Functions runtime; environment variables / secrets handled by Firebase.
 
-const {setGlobalOptions} = require("firebase-functions");
+const { setGlobalOptions } = require('firebase-functions'); // v2 global options
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
-const { defineSecret } = require('firebase-functions/params');
-const {onRequest} = require("firebase-functions/https");
-const logger = require("firebase-functions/logger");
-const functions = require('firebase-functions');
+const { onRequest } = require('firebase-functions/v2/https');
+const logger = require('firebase-functions/logger');
 const admin = require('firebase-admin');
 const fetch = require('node-fetch');
 const PDFDocument = require('pdfkit');
@@ -45,13 +43,17 @@ function formatIDR(n) {
 // functions should each use functions.runWith({ maxInstances: 10 }) instead.
 // In the v1 API, each function can only serve one request per container, so
 // this will be the maximum concurrent request count.
-setGlobalOptions({ maxInstances: 10 });
+// Default all v2 functions to asia-southeast1
+setGlobalOptions({ maxInstances: 10, region: 'asia-southeast1' });
 
-// Secret: Telegram Bot Token (must be set via `firebase functions:secrets:set TELEGRAM_BOT_TOKEN`)
-const TELEGRAM_BOT_TOKEN = defineSecret('TELEGRAM_BOT_TOKEN');
+// Telegram Bot Token now sourced from env/runtime config (no Secret Manager)
+// Set via either:
+//   firebase functions:config:set telegram.token="YOUR_TOKEN"
+// or deploy with env var TELEGRAM_BOT_TOKEN
 
 // ========== 1. Kirim Pengingat Pembayaran ==========
-exports.sendPaymentReminder = functions.https.onRequest(async (req, res) => {
+// HTTPS (v2) with explicit region
+exports.sendPaymentReminder = onRequest({ region: 'asia-southeast1' }, async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   try {
     const { invoiceId, email, name, total } = req.body || {};
@@ -84,7 +86,7 @@ exports.sendPaymentReminder = functions.https.onRequest(async (req, res) => {
 });
 
 // ========== 2. Print Label (Biteship) ==========
-exports.printLabel = functions.https.onRequest(async (req, res) => {
+exports.printLabel = onRequest({ region: 'asia-southeast1' }, async (req, res) => {
   if (req.method !== 'GET') return res.status(405).json({ error: 'GET only ?invoiceId=' });
   const { invoiceId } = req.query;
   if (!invoiceId) return res.status(400).json({ error: 'invoiceId required' });
@@ -197,7 +199,7 @@ exports.printLabel = functions.https.onRequest(async (req, res) => {
 
 // ========== 3. Scheduled cleanup: delete old label PDFs in Storage ==========
 // Runs daily and removes files under labels/ (or label/) older than 3 days
-exports.cleanupOldLabels = onSchedule({ schedule: 'every 24 hours', timeZone: 'Asia/Jakarta' }, async (event) => {
+exports.cleanupOldLabels = onSchedule({ schedule: 'every 24 hours', timeZone: 'Asia/Jakarta', region: 'asia-southeast1' }, async (event) => {
     const prefixes = ['labels/', 'label/'];
     const now = Date.now();
     const ageMs = 3 * 24 * 60 * 60 * 1000; // 3 days
@@ -247,8 +249,8 @@ exports.cleanupOldLabels = onSchedule({ schedule: 'every 24 hours', timeZone: 'A
 async function sendTelegramToAdmins(text) {
   const doc = await admin.firestore().collection('settings').doc('telegram').get();
   const chatIds = Array.isArray(doc.data()?.chatIds) ? doc.data().chatIds : [];
-  // Prefer secret at runtime; fallback to env for local dev
-  const token = (typeof TELEGRAM_BOT_TOKEN.value === 'function' ? TELEGRAM_BOT_TOKEN.value() : '') || process.env.TELEGRAM_BOT_TOKEN || '';
+  // Token diinjeksikan via Secret Manager (options.secrets) atau env var pada deploy.
+  const token = process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_TOKEN || '';
   if (!token || chatIds.length === 0) {
     console.warn('Telegram broadcast skipped. token?', !!token, 'chatIdsCount', chatIds.length);
     return;
@@ -275,7 +277,8 @@ async function sendTelegramToAdmins(text) {
 }
 
 // Trigger: chat baru (v2)
-exports.notifyNewChat = onDocumentCreated({ document: 'chats/{chatId}/messages/{msgId}', region: 'asia-southeast1', secrets: [TELEGRAM_BOT_TOKEN] }, async (event) => {
+// Firestore triggers must run in the same region as the Firestore database (yours appears to be asia-east1)
+exports.notifyNewChat = onDocumentCreated({ document: 'chats/{chatId}/messages/{msgId}', region: 'asia-east1', secrets: ['TELEGRAM_BOT_TOKEN'] }, async (event) => {
   const snap = event.data; // QueryDocumentSnapshot
   if (!snap) return;
   const data = snap.data() || {};
@@ -306,7 +309,7 @@ exports.notifyNewChat = onDocumentCreated({ document: 'chats/{chatId}/messages/{
 });
 
 // Trigger: invoice status changed to PAID/COD
-exports.notifyInvoicePaid = onDocumentUpdated({ document: 'invoices/{invoiceId}', region: 'asia-southeast1', secrets: [TELEGRAM_BOT_TOKEN] }, async (event) => {
+exports.notifyInvoicePaid = onDocumentUpdated({ document: 'invoices/{invoiceId}', region: 'asia-east1', secrets: ['TELEGRAM_BOT_TOKEN'] }, async (event) => {
   const before = event.data?.before?.data?.() || {};
   const after = event.data?.after?.data?.() || {};
   if (!after || Object.keys(after).length === 0) return;
@@ -345,18 +348,48 @@ exports.notifyInvoicePaid = onDocumentUpdated({ document: 'invoices/{invoiceId}'
   const method = currPM === 'cod' ? 'COD' : (after.paymentMethod || after.payment_method || 'Transfer');
   const header = currPM === 'cod' && becameCod && !isPaidTransition ? '🧾 Order COD baru' : '✅ Pembayaran diterima';
 
+  const BASE_URL = (process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://www.perudenka.com').replace(/\/$/, '');
+  const adminOrdersUrl = `${BASE_URL}/admin/orders`;
   const msg = [
     header,
     `Invoice: ${invoiceId}`,
     `Pembeli: ${buyer}`,
     `Metode: ${method}`,
-    `Total: ${formatIDR(total)}`
+    `Total: ${formatIDR(total)}`,
+    `Admin: ${adminOrdersUrl}`
   ].join('\n');
   await sendTelegramToAdmins(msg);
 });
 
+// Trigger: invoice baru dibuat -> kirim notifikasi order baru
+exports.notifyNewInvoice = onDocumentCreated({ document: 'invoices/{invoiceId}', region: 'asia-east1', secrets: ['TELEGRAM_BOT_TOKEN'] }, async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+  const inv = snap.data() || {};
+  const invoiceId = event.params.invoiceId;
+  const buyer = inv.buyerName || inv?.buyer?.name || inv.customerName || inv?.customer?.name || inv.name || '-';
+  const method = (inv.paymentMethod || inv.payment_method || '').toUpperCase() || 'UNKNOWN';
+  const candidates = [inv.grandTotal, inv.totalPayment, inv.total, inv.amount, inv.finalAmount];
+  let total = 0; for (const v of candidates) { const n = Number(v); if (Number.isFinite(n) && n>0) { total = n; break; } }
+  const BASE_URL = (process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://www.purodenka.com').replace(/\/$/, '');
+  const adminOrdersUrl = `${BASE_URL}/admin/orders`;
+  const msg = [
+    '🆕 Order baru masuk',
+    `Invoice: ${invoiceId}`,
+    `Pembeli: ${buyer}`,
+    `Metode: ${method}`,
+    `Total: ${formatIDR(total)}`,
+    `Admin: ${adminOrdersUrl}`
+  ].join('\n');
+  try {
+    await sendTelegramToAdmins(msg);
+  } catch (e) {
+    console.error('notifyNewInvoice failed', invoiceId, e?.message || e);
+  }
+});
+
 // ========== 5. Generate Daily Layout Summary (favorites, recommendations, ads) ==========
-exports.generateDailyLayout = onSchedule({ schedule: 'every day 00:05', timeZone: 'Asia/Jakarta' }, async () => {
+exports.generateDailyLayout = onSchedule({ schedule: 'every day 00:05', timeZone: 'Asia/Jakarta', region: 'asia-southeast1' }, async () => {
   try {
     const payload = await buildDailyLayoutSummary();
     await db.collection('layout_summaries').doc(payload.date).set(payload, { merge: true });
@@ -369,7 +402,7 @@ exports.generateDailyLayout = onSchedule({ schedule: 'every day 00:05', timeZone
 });
 
 // Manual on-demand regeneration (secured by optional simple token query param)
-exports.regenerateDailyLayout = functions.https.onRequest(async (req, res) => {
+exports.regenerateDailyLayout = onRequest({ region: 'asia-southeast1' }, async (req, res) => {
   try {
     const token = process.env.REGENERATE_TOKEN || null;
     if (token && req.query.token !== token) {
@@ -386,13 +419,26 @@ exports.regenerateDailyLayout = functions.https.onRequest(async (req, res) => {
 });
 
 // Optional: simple test endpoint to verify Telegram delivery and chatIds
-exports.testTelegram = functions.https.onRequest(async (req, res) => {
+exports.testTelegram = onRequest({ region: 'asia-southeast1', secrets: ['TELEGRAM_BOT_TOKEN'] }, async (req, res) => {
   try {
     const text = req.query.text || 'Test Telegram from Functions';
     await sendTelegramToAdmins(String(text));
     res.json({ ok: true });
   } catch (e) {
     console.error('testTelegram error', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// Minimal debug endpoint: returns booleans and counts only (no secrets)
+exports.debugTelegram = onRequest({ region: 'asia-southeast1', secrets: ['TELEGRAM_BOT_TOKEN'] }, async (req, res) => {
+  try {
+    const doc = await admin.firestore().collection('settings').doc('telegram').get();
+    const chatIds = Array.isArray(doc.data()?.chatIds) ? doc.data().chatIds : [];
+    const token = process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_TOKEN || '';
+    res.json({ tokenPresent: !!token, tokenSource: 'env', chatIdsCount: chatIds.length });
+  } catch (e) {
+    console.error('debugTelegram error', e);
     res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 });

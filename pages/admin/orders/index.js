@@ -15,8 +15,9 @@ import {
   getDocs,
   getDoc as getFirestoreDoc,
   deleteDoc,
-  addDoc,              // <-- ADD
-  setDoc               // <-- ADD (jika mau pakai setDoc by code)
+  addDoc,
+  setDoc,
+  increment
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { firestore, auth } from '@/utils/firebase';
@@ -832,27 +833,71 @@ export default function AdminOrdersPage() {
         return;
       }
       if (data.label_url) {
-        // Update status ke shipped
+        // Update status ke shipped dan inisialisasi counter unduh label
         await updateDoc(doc(firestore, 'invoices', order.id), {
           labelUrl: data.label_url,
           status: 'shipped',
           shippedAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          labelDownloadCount: 1
         });
         setOrders(prev => prev.map(o => o.id === order.id ? {
           ...o,
           labelUrl: data.label_url,
           status: 'shipped',
-          shippedAt: new Date()
+          shippedAt: new Date(),
+          labelDownloadCount: 1
         } : o));
         window.open(data.label_url, '_blank');
-        setActiveTab('shipped'); // pindah tab
+        setActiveTab('shipped');
       } else {
         alert('Label URL tidak tersedia.');
       }
     } catch (e) {
       alert('Error cetak label.');
     } finally {
+      setRowActionId(null);
+    }
+  };
+
+  // NEW: Unduh Label ulang (untuk tab Dikirim)
+  const downloadLabel = async (order) => {
+    if (!order) return;
+    const currentCount = order.labelDownloadCount || 0;
+    if (currentCount >= 1) {
+      const proceed = window.confirm(`Label sudah diunduh ${currentCount}x. Lanjutkan unduhan baru? Pastikan tidak double packing.`);
+      if (!proceed) return;
+    }
+    try {
+      setRowActionId(order.id);
+      setActionLoading(true);
+      const invoiceId = order.id;
+      if (!invoiceId) { alert('Invoice ID tidak ditemukan.'); return; }
+      // Selalu panggil API untuk memastikan signed URL baru (mengatasi label lama yang tokennya sudah expired)
+      const resp = await fetch(`/api/biteship/print-label?invoiceId=${encodeURIComponent(invoiceId)}`);
+      const data = await resp.json();
+      if (!resp.ok) {
+        alert(data.error || 'Gagal mengambil label.');
+        return;
+      }
+      const url = data.label_url || data.url || data.data?.label_url || null;
+      if (!url) { alert('Label URL tidak tersedia.'); return; }
+
+      await updateDoc(doc(firestore, 'invoices', order.id), {
+        labelUrl: url,
+        labelDownloadCount: increment(1),
+        updatedAt: serverTimestamp()
+      });
+      setOrders(prev => prev.map(o => o.id === order.id ? {
+        ...o,
+        labelUrl: url,
+        labelDownloadCount: (o.labelDownloadCount || 0) + 1
+      } : o));
+      window.open(url, '_blank');
+    } catch (e) {
+      alert('Error unduh label.');
+    } finally {
+      setActionLoading(false);
       setRowActionId(null);
     }
   };
@@ -1285,8 +1330,8 @@ export default function AdminOrdersPage() {
                 const preview = items.slice(0, 3);
                 const extra = items.length - preview.length;
                 return (
-                  <tr key={o.id}
-                      className={`hover:bg-gray-50 align-top ${o.status==='cancellation_requested' ? 'bg-amber-50/70' : ''}`}>
+                    <tr key={o.id}
+                      className={`hover:bg-gray-50 align-top ${o.status==='cancellation_requested' ? 'bg-amber-50/70' : ''} ${activeTab==='shipped' && (o.labelDownloadCount||0)>1 ? 'bg-yellow-50/70' : ''}`}>
                     <td className="px-3 py-3 whitespace-nowrap">
                       <div className="font-semibold text-[11px]">#{o.invoiceId || o.id}</div>
                       <div className="mt-1 text-[10px] text-gray-500 flex flex-col gap-[2px]">
@@ -1436,6 +1481,27 @@ export default function AdminOrdersPage() {
                         >
                           Detail
                         </button>
+                        {activeTab === 'shipped' && (
+                          <div className="flex flex-col gap-1">
+                            <button
+                              onClick={() => downloadLabel(o)}
+                              disabled={(rowActionId && rowActionId !== o.id) || actionLoading}
+                              className={`px-2 py-1 text-[10px] rounded text-white disabled:opacity-40 ${((o.labelDownloadCount||0) > 3) ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                            >
+                              {rowActionId === o.id && actionLoading ? 'Menyiapkan…' : 'Unduh Label'}
+                              {(o.labelDownloadCount||0) >= 3 && (
+                                <span className={`ml-2 inline-flex items-center px-1.5 py-[1px] rounded text-[9px] font-semibold ${((o.labelDownloadCount||0) > 3) ? 'bg-white text-red-700' : 'bg-white/20 text-white'}`}>
+                                  {(o.labelDownloadCount||0)}x
+                                </span>
+                              )}
+                            </button>
+                            {typeof o.labelDownloadCount === 'number' && (
+                              <div className={`text-[9px] ${o.labelDownloadCount>1 ? 'text-red-600 font-semibold' : 'text-gray-400'}`}>
+                                Diunduh {o.labelDownloadCount}x{o.labelDownloadCount>1 ? ' · Periksa agar tidak double packing' : ''}
+                              </div>
+                            )}
+                          </div>
+                        )}
                         {/* ================= ACTIONS PER TAB ================= */}
                         {activeTab === 'awaiting_payment' && (
                           <>

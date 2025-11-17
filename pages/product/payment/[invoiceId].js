@@ -24,7 +24,7 @@ const COURIERS = [
 
 const ORIGIN_LAT = Number(process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_LAT);
 const ORIGIN_LNG = Number(process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_LNG);
-const INSTANT_RADIUS_KM = 30;
+const INSTANT_RADIUS_KM = Number(process.env.NEXT_PUBLIC_INSTANT_MAX_RADIUS_KM || process.env.INSTANT_MAX_RADIUS_KM || 40);
 
 const COD_DISABLED = true; // COD permanently disabled
 // const COD_FEE_RATE = 0.05; // no longer used
@@ -536,20 +536,30 @@ export default function PaymentPage() {
   // Handler validasi alamat & buka map
   const handleValidateAddress = async () => {
     setInstantError('');
+    // Jika alamat kosong, tetap buka peta agar user bisa pilih titik manual
     if(!addressInput.trim()){
-      setInstantError('Alamat wajib diisi.');
+      window._prefillInstantCenter = null;
+      setShowMap(true);
       return;
     }
     const coord = await getCoordinates(addressInput.trim());
     if(!coord){
-      setInstantError('Alamat tidak ditemukan.');
+      // Geocode gagal: buka peta dan minta user pilih titik manual
+      setInstantError('Alamat tidak ditemukan. Silakan pilih titik manual di peta.');
+      window._prefillInstantCenter = null;
+      setShowMap(true);
       return;
     }
     const distance = calcDistanceKm(ORIGIN_LAT, ORIGIN_LNG, coord.lat, coord.lng);
     if(distance>INSTANT_RADIUS_KM){
       setInstantError(`Jarak ${distance.toFixed(2)} km > ${INSTANT_RADIUS_KM} km. Tidak tersedia layanan instant.`);
+      // Tetap buka peta agar user bisa geser marker dalam radius
+      window._prefillInstantCenter = { lat: ORIGIN_LAT, lng: ORIGIN_LNG };
+      setShowMap(true);
       return;
     }
+    // Geocode berhasil dan dalam radius: prefill center & marker
+    window._prefillInstantCenter = coord;
     setPickedCoord(coord);
     setShowMap(true);
   };

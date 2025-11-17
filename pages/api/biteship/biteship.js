@@ -28,9 +28,29 @@ export default async function handler(req, res) {
 
     // ============ INSTANT FLOW ============
     if (isInstant) {
-      // Pakai origin dari body jika tersedia, fallback ke ENV
+      // Pakai origin dari body jika tersedia, fallback ke Primary Pickup coords, lalu ENV
       let originLat = (typeof req.body?.origin_latitude === 'number') ? req.body.origin_latitude : null;
       let originLng = (typeof req.body?.origin_longitude === 'number') ? req.body.origin_longitude : null;
+      if (!Number.isFinite(originLat) || !Number.isFinite(originLng)) {
+        try {
+          const settingsSnap = await adminDb.collection('settings').doc('pickups').get();
+          const primaryId = settingsSnap.exists ? settingsSnap.data().primaryId : null;
+          if (primaryId) {
+            const pSnap = await adminDb.collection('pickup_locations').doc(String(primaryId)).get();
+            if (pSnap.exists) {
+              const p = pSnap.data();
+              const latPick = (p && p.latitude != null) ? Number(p.latitude) : (p?.area?.lat != null ? Number(p.area.lat) : null);
+              const lngPick = (p && p.longitude != null) ? Number(p.longitude) : (p?.area?.lng != null ? Number(p.area.lng) : null);
+              if (Number.isFinite(latPick) && Number.isFinite(lngPick)) {
+                originLat = latPick;
+                originLng = lngPick;
+              }
+            }
+          }
+        } catch (e) {
+          // silent fallback
+        }
+      }
       if (!Number.isFinite(originLat) || !Number.isFinite(originLng)) {
         originLat = parseFloat(process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_LAT || process.env.BITESHIP_ORIGIN_LAT);
         originLng = parseFloat(process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_LNG || process.env.BITESHIP_ORIGIN_LNG);

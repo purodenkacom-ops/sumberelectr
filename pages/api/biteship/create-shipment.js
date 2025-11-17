@@ -91,10 +91,20 @@ export default async function handler(req,res){
     }
 
     // Origin (env-driven) with optional pickup override
-    const SHIPPER_NAME  = process.env.BITESHIP_SHIPPER_NAME  || process.env.BITESHIP_ORIGIN_CONTACT_NAME || 'Purodenka';
-    const SHIPPER_PHONE = process.env.BITESHIP_SHIPPER_PHONE || process.env.BITESHIP_ORIGIN_CONTACT_PHONE || '089000000000';
-  const SHIPPER_EMAIL = process.env.BITESHIP_SHIPPER_EMAIL || process.env.BITESHIP_ORIGIN_CONTACT_EMAIL || 'noreply@purodenka.local';
-  const SHIPPER_ORG   = process.env.BITESHIP_SHIPPER_ORG   || process.env.BITESHIP_ORIGIN_ORG || 'Purodenka';
+    let SHIPPER_NAME  = process.env.BITESHIP_SHIPPER_NAME  || process.env.BITESHIP_ORIGIN_CONTACT_NAME || 'Purodenka';
+    let SHIPPER_PHONE = process.env.BITESHIP_SHIPPER_PHONE || process.env.BITESHIP_ORIGIN_CONTACT_PHONE || '089000000000';
+    const SHIPPER_EMAIL = process.env.BITESHIP_SHIPPER_EMAIL || process.env.BITESHIP_ORIGIN_CONTACT_EMAIL || 'noreply@purodenka.local';
+    const SHIPPER_ORG   = process.env.BITESHIP_SHIPPER_ORG   || process.env.BITESHIP_ORIGIN_ORG || 'Purodenka';
+
+    // If primary pickup is available, prefer its contact info for shipper/origin
+    if (pickup) {
+      if (pickup.contactName) SHIPPER_NAME = String(pickup.contactName).trim() || SHIPPER_NAME;
+      if (pickup.contactPhone) {
+        const p = String(pickup.contactPhone).trim();
+        // Minimal sanitization: strip spaces; leave formatting to Biteship acceptance
+        SHIPPER_PHONE = p || SHIPPER_PHONE;
+      }
+    }
 
     const originAddress = pickup?.address ||
       process.env.BITESHIP_ORIGIN_ADDRESS ||
@@ -109,8 +119,17 @@ export default async function handler(req,res){
       12440
     );
 
-    const originLat = pickup?.area?.lat != null ? Number(pickup.area.lat) : parseFloat(process.env.BITESHIP_ORIGIN_LAT || process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_LAT || '');
-    const originLng = pickup?.area?.lng != null ? Number(pickup.area.lng) : parseFloat(process.env.BITESHIP_ORIGIN_LNG || process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_LNG || '');
+    // Prefer stored pickup.latitude/longitude, fallback to area.lat/lng, then env
+    const originLat = (pickup && pickup.latitude != null)
+      ? Number(pickup.latitude)
+      : (pickup?.area?.lat != null)
+        ? Number(pickup.area.lat)
+        : parseFloat(process.env.BITESHIP_ORIGIN_LAT || process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_LAT || '');
+    const originLng = (pickup && pickup.longitude != null)
+      ? Number(pickup.longitude)
+      : (pickup?.area?.lng != null)
+        ? Number(pickup.area.lng)
+        : parseFloat(process.env.BITESHIP_ORIGIN_LNG || process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_LNG || '');
 
     // Destination
     const destAddr =
@@ -207,8 +226,8 @@ export default async function handler(req,res){
       };
     }
 
-    const apiKey = process.env.BITESHIP_API_KEY;
-    if(!apiKey) return res.status(500).json({error:'Missing BITESHIP_API_KEY'});
+    const apiKey = process.env.BITESHIP_API_KEY || process.env.NEXT_PUBLIC_BITESHIP_API_KEY;
+    if(!apiKey) return res.status(500).json({error:'Missing Biteship API key (set BITESHIP_API_KEY, optionally fallback to NEXT_PUBLIC_BITESHIP_API_KEY in dev)'});
 
     const resp = await axios.post('https://api.biteship.com/v1/orders', shipmentData, {
       headers:{
@@ -286,7 +305,7 @@ export default async function handler(req,res){
       });
     }
 
-    return res.status(500).json({
+    return res.status(e.response?.status || 500).json({
       success:false,
       error:'Failed to create shipment',
       detail: respData || e.message

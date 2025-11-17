@@ -408,6 +408,8 @@ export async function getStaticProps() {
           name: d.name || '',
           productSlug: d.productSlug || d.slug || (d.name ? d.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') : doc.id),
           slug: d.slug || d.productSlug || null,
+          category: d.category || d.categoryName || '',
+          categorySlug: d.categorySlug || (d.category ? d.category.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') : ''),
           image: firstImage || null,
           images: firstImage ? [firstImage] : [],
             sizeVariants,

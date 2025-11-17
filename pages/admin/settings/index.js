@@ -62,7 +62,9 @@ export default function AdminSettingsPage() {
     contactPhone: '',
     address: '',
     area: null,
-    postal_code: ''
+    postal_code: '',
+    latitude: '',
+    longitude: ''
   });
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
@@ -271,7 +273,9 @@ export default function AdminSettingsPage() {
     setNewPickup(prev => ({
       ...prev,
       area,
-      postal_code: area?.postal_code || prev.postal_code || ''
+      postal_code: area?.postal_code || prev.postal_code || '',
+      latitude: area?.lat != null ? area.lat : prev.latitude,
+      longitude: area?.lng != null ? area.lng : prev.longitude
     }));
   };
 
@@ -294,7 +298,9 @@ export default function AdminSettingsPage() {
           contactPhone: p.contactPhone,
           address: p.address,
           area: p.area,
-          postal_code: p.postal_code
+          postal_code: p.postal_code,
+          latitude: (p.latitude !== '' && !isNaN(parseFloat(p.latitude))) ? parseFloat(p.latitude) : null,
+          longitude: (p.longitude !== '' && !isNaN(parseFloat(p.longitude))) ? parseFloat(p.longitude) : null
         })
       });
       const data = await r.json();
@@ -306,7 +312,7 @@ export default function AdminSettingsPage() {
         setPickupList(Array.isArray(listData.list) ? listData.list : []);
         setPickupPrimaryId(listData.primaryId || '');
       }
-      setNewPickup({ name:'', contactName:'', contactPhone:'', address:'', area:null, postal_code:'' });
+      setNewPickup({ name:'', contactName:'', contactPhone:'', address:'', area:null, postal_code:'', latitude:'', longitude:'' });
       setPickupOk('Lokasi penjemputan ditambah.');
     } catch (e) {
       setPickupError(e.message || 'Gagal menambah lokasi.');
@@ -373,7 +379,9 @@ export default function AdminSettingsPage() {
       contactPhone: row.contactPhone || '',
       address: row.address || '',
       postal_code: row.postal_code || '',
-      area: row.area || null
+      area: row.area || null,
+      latitude: (row.latitude != null ? row.latitude : ''),
+      longitude: (row.longitude != null ? row.longitude : '')
     });
   };
 
@@ -400,7 +408,9 @@ export default function AdminSettingsPage() {
           contactPhone: editDraft.contactPhone,
           address: editDraft.address,
           area: editDraft.area,
-          postal_code: editDraft.postal_code
+          postal_code: editDraft.postal_code,
+          latitude: (editDraft.latitude !== '' && !isNaN(parseFloat(editDraft.latitude))) ? parseFloat(editDraft.latitude) : null,
+          longitude: (editDraft.longitude !== '' && !isNaN(parseFloat(editDraft.longitude))) ? parseFloat(editDraft.longitude) : null
         })
       });
       const data = await r.json();
@@ -764,6 +774,30 @@ export default function AdminSettingsPage() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
+                <label className="block text-xs text-gray-600 mb-1">Latitude (opsional)</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="w-full px-3 py-2 text-sm border rounded"
+                  placeholder="-6.2"
+                  value={newPickup.latitude}
+                  onChange={e=> setNewPickup(prev=>({...prev, latitude:e.target.value}))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Longitude (opsional)</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="w-full px-3 py-2 text-sm border rounded"
+                  placeholder="106.8"
+                  value={newPickup.longitude}
+                  onChange={e=> setNewPickup(prev=>({...prev, longitude:e.target.value}))}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
                 <label className="block text-xs text-gray-600 mb-1">Nama Kontak (opsional)</label>
                 <input
                   className="w-full px-3 py-2 text-sm border rounded"
@@ -823,9 +857,13 @@ export default function AdminSettingsPage() {
                           <input className="px-3 py-2 text-sm border rounded" placeholder="Nama kontak" value={editDraft.contactName} onChange={e=> setEditDraft(prev=>({...prev, contactName:e.target.value}))} />
                           <input className="px-3 py-2 text-sm border rounded" placeholder="Telepon kontak" value={editDraft.contactPhone} onChange={e=> setEditDraft(prev=>({...prev, contactPhone:e.target.value}))} />
                         </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <input type="number" step="any" className="px-3 py-2 text-sm border rounded" placeholder="Latitude" value={editDraft.latitude} onChange={e=> setEditDraft(prev=>({...prev, latitude:e.target.value}))} />
+                          <input type="number" step="any" className="px-3 py-2 text-sm border rounded" placeholder="Longitude" value={editDraft.longitude} onChange={e=> setEditDraft(prev=>({...prev, longitude:e.target.value}))} />
+                        </div>
                         <textarea rows={2} className="w-full px-3 py-2 text-sm border rounded" value={editDraft.address} onChange={e=> setEditDraft(prev=>({...prev, address:e.target.value}))} />
                         <div>
-                          <AreaSelect label="Ganti Area (opsional)" onSelect={area => setEditDraft(prev=>({...prev, area, postal_code: area?.postal_code || prev.postal_code}))} />
+                          <AreaSelect label="Ganti Area (opsional)" onSelect={area => setEditDraft(prev=>({...prev, area, postal_code: area?.postal_code || prev.postal_code, latitude: area?.lat != null ? area.lat : prev.latitude, longitude: area?.lng != null ? area.lng : prev.longitude}))} />
                         </div>
                         <div className="flex gap-2 justify-end">
                           <button type="button" className="px-3 py-2 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 border" onClick={cancelEditPickup}>Batal</button>
@@ -845,6 +883,9 @@ export default function AdminSettingsPage() {
                           <div className="text-[11px] text-gray-500">
                             Area: {row?.area?.name || '-'}, {row?.area?.city_name || '-'} — {row?.area?.province || '-'} • {row?.postal_code || row?.area?.postal_code || '-'}
                           </div>
+                          {(row.latitude != null && row.longitude != null) && (
+                            <div className="text-[11px] text-gray-500">Koordinat: {row.latitude}, {row.longitude}</div>
+                          )}
                           {(row.contactName || row.contactPhone) && (
                             <div className="text-[11px] text-gray-500">Kontak: {row.contactName || '-'} {row.contactPhone ? `• ${row.contactPhone}` : ''}</div>
                           )}

@@ -55,8 +55,19 @@ export default async function handler(req, res) {
       if (exists) {
         const [url] = await file.getSignedUrl({
           action: 'read',
-          expires: Date.now() + 60 * 60 * 1000
+          // Perpanjang masa berlaku signed URL menjadi 24 jam
+          expires: Date.now() + 24 * 60 * 60 * 1000
         });
+        // Update dokumen agar labelGeneratedAt diperbarui setiap refresh URL
+        try {
+          await db.collection(collectionName).doc(deliveryId || invoiceId).update({
+            labelUrl: url,
+            labelGeneratedAt: new Date(),
+            updatedAt: new Date()
+          });
+        } catch (e) {
+          console.warn('Tidak bisa update doc saat refresh label URL:', e.message);
+        }
         return res.status(200).json({ label_url: url });
       }
     } catch (e) {
@@ -223,7 +234,8 @@ export default async function handler(req, res) {
     try {
       [url] = await file.getSignedUrl({
         action: 'read',
-        expires: Date.now() + 60 * 60 * 1000,
+        // 24 jam masa berlaku
+        expires: Date.now() + 24 * 60 * 60 * 1000,
       });
     } catch (signedUrlErr) {
       console.error('Error mendapatkan signed URL:', signedUrlErr);
