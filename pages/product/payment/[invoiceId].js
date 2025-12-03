@@ -1188,8 +1188,15 @@ export default function PaymentPage() {
       window.snap.pay(token, {
         onSuccess: function(result){
           console.log('Midtrans success', result);
-          alert('Pembayaran berhasil.');
-          router.replace('/account');
+          // Hit backend to verify and persist status, then redirect
+          fetch('/api/midtrans/check-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invoiceId: String(invoice.invoiceId || invoiceId) })
+          }).catch(()=>{}).finally(()=>{
+            alert('Pembayaran berhasil.');
+            router.replace('/account');
+          });
         },
         onPending: function(result){
           console.log('Midtrans pending', result);
