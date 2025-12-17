@@ -42,7 +42,7 @@
     "i18next": "^25.2.1",
     "lodash.debounce": "^4.0.8",
     "midtrans-client": "^1.4.3",
-    "next": "15.3.3",
+    "next": "15.3.8",
     "next-i18next": "^15.4.2",
     "next-seo": "^6.8.0",
     "node-fetch": "^2.7.0",
