@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import Head from 'next/head';
 import MiniNavbar from '@/components/MiniNavbar';
 import ProductCard from '@/components/ProductCard';
+import ProductSortBar from '@/components/ProductSortBar';
 import Footer from '@/components/Footer';
 import { useAuth } from '@/context/AuthContext';
 import { firestore } from '@/utils/firebase';
@@ -16,6 +17,7 @@ const AllProductPage = () => {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [priceSort, setPriceSort] = useState('none');
   const [promoOnly, setPromoOnly] = useState(false);
+  const [sortMode, setSortMode] = useState('default');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(16); // default desktop
 
@@ -69,6 +71,25 @@ const AllProductPage = () => {
     } catch { return 0; }
   };
 
+  // Sync sortMode with priceSort for mobile dropdown compatibility
+  const handleSortModeChange = (mode) => {
+    setSortMode(mode);
+    // Sync the mobile dropdown
+    if (mode === 'price-asc') setPriceSort('asc');
+    else if (mode === 'price-desc') setPriceSort('desc');
+    else setPriceSort('none');
+    setPage(1);
+  };
+
+  const handlePriceSortChange = (val) => {
+    setPriceSort(val);
+    // Sync the desktop sort bar
+    if (val === 'asc') setSortMode('price-asc');
+    else if (val === 'desc') setSortMode('price-desc');
+    else setSortMode('default');
+    setPage(1);
+  };
+
   const filtered = useMemo(() => {
     let out = products.slice();
     if (categoryFilter) {
@@ -77,28 +98,47 @@ const AllProductPage = () => {
     if (promoOnly) {
       out = out.filter(p => Number(p.discount) > 0).sort((a,b) => (Number(b.discount)||0) - (Number(a.discount)||0));
     }
-    if (priceSort !== 'none') {
-      out = out.sort((a,b) => {
-        const pa = getMinPrice(a) || 0;
-        const pb = getMinPrice(b) || 0;
-        return priceSort === 'asc' ? pa - pb : pb - pa;
-      });
-    } else {
-      // Default sort: kategori → sub kategori → nama produk (abjad)
-      out = out.sort((a, b) => {
-        const catA = (a.category || '').toLowerCase();
-        const catB = (b.category || '').toLowerCase();
-        if (catA !== catB) return catA.localeCompare(catB, 'id');
-        const subA = (a.subCategory || '').toLowerCase();
-        const subB = (b.subCategory || '').toLowerCase();
-        if (subA !== subB) return subA.localeCompare(subB, 'id');
-        const nameA = (a.name || '').toLowerCase();
-        const nameB = (b.name || '').toLowerCase();
-        return nameA.localeCompare(nameB, 'id');
-      });
+
+    // Apply sort based on sortMode (desktop) or priceSort (mobile)
+    const effectiveSort = sortMode;
+
+    switch (effectiveSort) {
+      case 'az':
+        out.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'id'));
+        break;
+      case 'price-asc':
+        out.sort((a, b) => (getMinPrice(a) || 0) - (getMinPrice(b) || 0));
+        break;
+      case 'price-desc':
+        out.sort((a, b) => (getMinPrice(b) || 0) - (getMinPrice(a) || 0));
+        break;
+      case 'best-selling':
+        out.sort((a, b) => (Number(b.sold ?? b.salesCount ?? 0)) - (Number(a.sold ?? a.salesCount ?? 0)));
+        break;
+      case 'newest':
+        out.sort((a, b) => {
+          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return dateB - dateA;
+        });
+        break;
+      default:
+        // Default sort: kategori → sub kategori → nama produk (abjad)
+        out.sort((a, b) => {
+          const catA = (a.category || '').toLowerCase();
+          const catB = (b.category || '').toLowerCase();
+          if (catA !== catB) return catA.localeCompare(catB, 'id');
+          const subA = (a.subCategory || '').toLowerCase();
+          const subB = (b.subCategory || '').toLowerCase();
+          if (subA !== subB) return subA.localeCompare(subB, 'id');
+          const nameA = (a.name || '').toLowerCase();
+          const nameB = (b.name || '').toLowerCase();
+          return nameA.localeCompare(nameB, 'id');
+        });
+        break;
     }
     return out;
-  }, [products, categoryFilter, priceSort, promoOnly]);
+  }, [products, categoryFilter, priceSort, promoOnly, sortMode]);
 
   // Pagination logic
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -162,8 +202,8 @@ const AllProductPage = () => {
 
               <select
                 value={priceSort}
-                onChange={e => setPriceSort(e.target.value)}
-                className="px-3 py-2 border rounded-lg bg-white w-full sm:w-auto min-w-0"
+                onChange={e => handlePriceSortChange(e.target.value)}
+                className="px-3 py-2 border rounded-lg bg-white w-full sm:w-auto min-w-0 lg:hidden"
               >
                 <option value="none">Urutkan: Default</option>
                 <option value="asc">Harga: Terendah</option>
@@ -177,6 +217,12 @@ const AllProductPage = () => {
             </div>
           </div>
         </div>
+
+        <ProductSortBar
+          activeSort={sortMode}
+          onSortChange={handleSortModeChange}
+          totalCount={filtered.length}
+        />
 
         <div className="mb-4 text-sm text-gray-600">
           Menampilkan {pagedProducts.length} dari {filtered.length} produk
