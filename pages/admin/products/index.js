@@ -19,6 +19,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import AdminLayout from '../_layout';
 import Link from 'next/link';
 import Image from 'next/image';
+import { FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 
 // Fallback seeding ulasan di client jika API admin gagal (misal env admin tidak dikonfigurasi di lokal)
 import reviewsData from '@/utils/reviews.json';
@@ -65,6 +66,8 @@ const slugify = (text) =>
 
 const getCategorySlug = (category) => slugify(category || ''); // fallback
 
+const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50];
+
 export default function ProductListPage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
@@ -104,7 +107,7 @@ export default function ProductListPage() {
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [checkedIds, setCheckedIds] = useState([]);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
@@ -184,6 +187,10 @@ export default function ProductListPage() {
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterCategory]);
 
   const fetchProducts = async () => {
     setLoading(true);
@@ -519,11 +526,22 @@ export default function ProductListPage() {
   });
 
   // Pagination logic
-  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / itemsPerPage));
+  const safePage = Math.min(currentPage, totalPages);
   const paginatedProducts = filteredProducts.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
+    (safePage - 1) * itemsPerPage,
+    safePage * itemsPerPage
   );
+  const rangeStart = filteredProducts.length === 0 ? 0 : (safePage - 1) * itemsPerPage + 1;
+  const rangeEnd = Math.min(safePage * itemsPerPage, filteredProducts.length);
+
+  const goToPage = (page) => {
+    const next = Math.max(1, Math.min(page, totalPages));
+    setCurrentPage(next);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   // Export Excel (menggunakan seluruh hasil filter, bukan hanya halaman saat ini)
   const handleDownloadExcel = () => {
@@ -1347,6 +1365,56 @@ export default function ProductListPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination */}
+          {!loading && filteredProducts.length > 0 && (
+            <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3 px-1">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                <p className="text-sm text-gray-600">
+                  Menampilkan {rangeStart}–{rangeEnd} dari {filteredProducts.length} produk
+                </p>
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <span className="whitespace-nowrap">Item per halaman:</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => {
+                      setItemsPerPage(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="px-2 py-1.5 border border-red-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary"
+                    aria-label="Jumlah item per halaman"
+                  >
+                    {PAGE_SIZE_OPTIONS.map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => goToPage(safePage - 1)}
+                  disabled={safePage <= 1}
+                  aria-label="Halaman sebelumnya"
+                  className="flex items-center justify-center w-10 h-10 rounded-lg border border-red-200 bg-white text-red-700 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                >
+                  <FaChevronLeft />
+                </button>
+                <span className="text-sm font-medium text-gray-700 min-w-[7rem] text-center">
+                  Halaman {safePage} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => goToPage(safePage + 1)}
+                  disabled={safePage >= totalPages}
+                  aria-label="Halaman berikutnya"
+                  className="flex items-center justify-center w-10 h-10 rounded-lg border border-red-200 bg-white text-red-700 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                >
+                  <FaChevronRight />
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Dialog Konfirmasi Delete Massal */}
           {showDeleteDialog && (
