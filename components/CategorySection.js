@@ -151,7 +151,7 @@ const CategorySection = () => {
   return (
     <div>
       <div className="bg-white p-4 rounded-xl shadow-md mb-4">
-        <h3 className="text-lg font-semibold mb-3 text-gray-800">Brand</h3>
+        <h3 className="text-lg font-semibold mb-3 text-gray-800">Kategori & Brand</h3>
 
         {/* MOBILE / TABLET (grid / paged) */}
         <div className="lg:hidden">

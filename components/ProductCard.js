@@ -5,15 +5,7 @@ import { auth } from '@/utils/firebase';
 import PopupCart from './PopupCart';
 import Image from 'next/image';
 import { useDiscounts } from '@/context/DiscountContext';
-
-// Helper extract slug
-const buildSlug = (raw) =>
-  (raw || '')
-    .toString()
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+import { getEffectiveProductSlug } from '@/utils/productSlug';
 
 const ProductCard = ({ product, onAddToCart }) => {
   const [userId, setUserId] = useState(null);
@@ -156,14 +148,7 @@ const ProductCard = ({ product, onAddToCart }) => {
     setShowCartPopup(true);
   };
 
-  // Slug
-  const effectiveSlug = (
-    product.productSlug ||
-    product.slug ||
-    product.permalink ||
-    (product.name ? buildSlug(product.name) : null) ||
-    product.id
-  );
+  const effectiveSlug = getEffectiveProductSlug(product, product.id);
 
   // Ambil gambar utama
   const getFirstImage = () => {

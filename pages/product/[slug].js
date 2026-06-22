@@ -2,18 +2,13 @@ import { useState, useEffect, useMemo } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { firestore } from '@/utils/firebase';
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { adminDb } from '@/utils/firebaseAdmin';
 import {
-  collection,
-  query,
-  where,
-  getDocs,
-  limit,
-  orderBy,
-  doc,
-  getDoc,
-  setDoc,
-  onSnapshot
-} from 'firebase/firestore';
+  getEffectiveProductSlug,
+  findProductBySlug,
+  serializeProductDoc,
+} from '@/utils/productSlug';
 import ProductCard from '@/components/ProductCard';
 import Reviews from '@/components/Reviews';
 import MiniNavbar from '@/components/MiniNavbar';
@@ -710,79 +705,64 @@ const SingleProductPage = ({ product, relatedProducts, crossProducts, reviews: i
   );
 };
 
-// SSG functions
+// SSG — Admin SDK (same as homepage) so Vercel build/ISR can read Firestore reliably
 export async function getStaticPaths() {
-  // Ambil semua slug produk dari Firestore
-  const snap = await getDocs(collection(firestore, 'products'));
-  const paths = snap.docs.map(doc => {
-    const data = doc.data();
-    return { params: { slug: data.productSlug || doc.id } };
-  });
-  return { paths, fallback: 'blocking' };
+  try {
+    const snap = await adminDb.collection('products').get();
+    const seen = new Set();
+    const paths = [];
+    snap.forEach((doc) => {
+      const slug = getEffectiveProductSlug(doc.data(), doc.id);
+      if (!slug || seen.has(slug)) return;
+      seen.add(slug);
+      paths.push({ params: { slug } });
+    });
+    return { paths, fallback: 'blocking' };
+  } catch (e) {
+    console.error('[getStaticPaths] products:', e);
+    return { paths: [], fallback: 'blocking' };
+  }
 }
 
 export async function getStaticProps({ params }) {
   const { slug } = params;
-  const productQ = query(
-    collection(firestore, 'products'),
-    where('productSlug', '==', slug),
-    limit(1)
-  );
-  const productSnap = await getDocs(productQ);
-  if (productSnap.empty) return { notFound: true };
-  const productDoc = productSnap.docs[0];
-  const data = productDoc.data();
 
-  const product = {
-    id: productDoc.id,
-    ...data,
-    createdAt: data.createdAt?.toDate?.() ? data.createdAt.toDate().toISOString() : null,
-    updatedAt: data.updatedAt?.toDate?.() ? data.updatedAt.toDate().toISOString() : null
-  };
+  let productDoc;
+  try {
+    productDoc = await findProductBySlug(adminDb, slug);
+  } catch (e) {
+    console.error('[getStaticProps] findProductBySlug:', e);
+    return { notFound: true };
+  }
+  if (!productDoc) return { notFound: true };
+
+  const product = serializeProductDoc(productDoc);
 
   // RELATED (same category)
   let relatedProducts = [];
   if (product.category) {
-    const relQ = query(
-      collection(firestore, 'products'),
-      where('category', '==', product.category),
-      limit(12)
-    );
-    const relSnap = await getDocs(relQ);
+    const relSnap = await adminDb
+      .collection('products')
+      .where('category', '==', product.category)
+      .limit(12)
+      .get();
     relatedProducts = relSnap.docs
-      .filter(d => d.id !== productDoc.id)
-      .map(d => {
-        const rd = d.data();
-        return {
-          id: d.id,
-          ...rd,
-          createdAt: rd.createdAt?.toDate?.() ? rd.createdAt.toDate().toISOString() : null,
-          updatedAt: rd.updatedAt?.toDate?.() ? rd.updatedAt.toDate().toISOString() : null
-        };
-      });
+      .filter((d) => d.id !== productDoc.id)
+      .map(serializeProductDoc);
   }
 
   // CROSS-SELL
   const needExtra = relatedProducts.length < 4;
   let crossProducts = [];
   if (needExtra) {
-    const extraQ = query(
-      collection(firestore, 'products'),
-      orderBy('createdAt', 'desc'),
-      limit(20)
-    );
-    const extraSnap = await getDocs(extraQ);
+    const extraSnap = await adminDb
+      .collection('products')
+      .orderBy('createdAt', 'desc')
+      .limit(20)
+      .get();
     const pool = extraSnap.docs
-      .filter(d => d.id !== product.id && !relatedProducts.find(r => r.id === d.id))
-      .map(d => {
-        const ed = d.data();
-        return {
-          id: d.id,
-          ...ed,
-          createdAt: ed.createdAt?.toDate?.() ? ed.createdAt.toDate().toISOString() : null,
-          updatedAt: ed.updatedAt?.toDate?.() ? ed.updatedAt.toDate().toISOString() : null
-        };
-      });
+      .filter((d) => d.id !== product.id && !relatedProducts.find((r) => r.id === d.id))
+      .map(serializeProductDoc);
     for (let i = pool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -797,32 +777,33 @@ export async function getStaticProps({ params }) {
     crossProducts = pool.slice(0, 5);
   }
 
-  // Ambil reviews dari Firestore
+  // Reviews
   let reviews = [];
   try {
-    const reviewsQ = query(
-      collection(firestore, 'reviews'),
-      where('productId', '==', String(product.id)),
-      limit(50)
-    );
-    const reviewsSnap = await getDocs(reviewsQ);
-    reviews = reviewsSnap.docs.map(d => {
+    const reviewsSnap = await adminDb
+      .collection('reviews')
+      .where('productId', '==', String(product.id))
+      .limit(50)
+      .get();
+    reviews = reviewsSnap.docs.map((d) => {
       const rd = d.data() || {};
       return {
         id: d.id,
         name: rd.name || '',
         comment: rd.comment || '',
         rating: rd.rating || 0,
-        createdAt: rd.createdAt?.toDate?.() ? rd.createdAt.toDate().toISOString() : (rd.createdAt || null)
+        createdAt: rd.createdAt?.toDate?.()
+          ? rd.createdAt.toDate().toISOString()
+          : rd.createdAt || null,
       };
     });
-  } catch (e) {
+  } catch {
     reviews = [];
   }
 
   return {
     props: { product, relatedProducts, crossProducts, reviews },
-    revalidate: 60
+    revalidate: 60,
   };
 }
 

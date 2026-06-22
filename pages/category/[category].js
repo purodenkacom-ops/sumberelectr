@@ -7,7 +7,7 @@ import ProductCard from '@/components/ProductCard';
 import ProductSortBar from '@/components/ProductSortBar';
 import ProductSidebar from '@/components/ProductSidebar';
 import MiniNavbar from '@/components/MiniNavbar';
-
+import Footer from '@/components/Footer';
 import Head from 'next/head';
 import { FaChevronDown } from 'react-icons/fa';
 
@@ -193,7 +193,7 @@ export default function CategoryPage({ category, products }) {
                 onClick={() => setIsMobileSidebarOpen(true)}
                 className="flex items-center justify-between gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm font-semibold text-gray-700 shadow-sm active:scale-[0.98] transition-all w-full sm:w-auto cursor-pointer"
               >
-                <span>Pilih Brand: {subCategoryFilter ? subCategoryFilter.replace(/-/g, ' ') : 'Semua'}</span>
+                <span>Sub Kategori: {subCategoryFilter ? subCategoryFilter.replace(/-/g, ' ') : 'Semua'}</span>
                 <FaChevronDown size={10} className="text-gray-400" />
               </button>
             </div>
@@ -236,7 +236,7 @@ export default function CategoryPage({ category, products }) {
           </div>
         </div>
       </main>
-     
+      <Footer />
     </>
   );
 }
