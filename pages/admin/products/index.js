@@ -500,7 +500,7 @@ export default function ProductListPage() {
   const filteredProducts = products.filter((p) => {
     // Filter kategori dengan slug agar konsisten
     const matchCategory = filterCategory
-      ? (p.categorySlug === getCategorySlug(filterCategory) || p.category === filterCategory)
+      ? (p.categorySlug === getCategorySlug(filterCategory) || p.category === filterCategory || p.subCategorySlug === getCategorySlug(filterCategory) || p.subCategory === filterCategory)
       : true;
 
     // Pencarian produk: nama dan kategori, case-insensitive
@@ -509,7 +509,9 @@ export default function ProductListPage() {
       !searchTerm ||
       (p.name && p.name.toLowerCase().includes(searchTerm)) ||
       (p.category && p.category.toLowerCase().includes(searchTerm)) ||
-      (p.categorySlug && p.categorySlug.toLowerCase().includes(searchTerm));
+      (p.categorySlug && p.categorySlug.toLowerCase().includes(searchTerm)) ||
+      (p.subCategory && p.subCategory.toLowerCase().includes(searchTerm)) ||
+      (p.subCategorySlug && p.subCategorySlug.toLowerCase().includes(searchTerm));
 
     return matchCategory && matchSearch;
   }).sort((a, b) => {
@@ -538,9 +540,6 @@ export default function ProductListPage() {
   const goToPage = (page) => {
     const next = Math.max(1, Math.min(page, totalPages));
     setCurrentPage(next);
-    if (typeof window !== 'undefined') {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
   };
 
   // Export Excel (menggunakan seluruh hasil filter, bukan hanya halaman saat ini)
