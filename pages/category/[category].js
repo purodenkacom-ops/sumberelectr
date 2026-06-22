@@ -7,7 +7,7 @@ import ProductCard from '@/components/ProductCard';
 import ProductSortBar from '@/components/ProductSortBar';
 import ProductSidebar from '@/components/ProductSidebar';
 import MiniNavbar from '@/components/MiniNavbar';
-import Footer from '@/components/Footer';
+
 import Head from 'next/head';
 import { FaChevronDown } from 'react-icons/fa';
 
@@ -236,7 +236,7 @@ export default function CategoryPage({ category, products }) {
           </div>
         </div>
       </main>
-      <Footer />
+     
     </>
   );
 }
