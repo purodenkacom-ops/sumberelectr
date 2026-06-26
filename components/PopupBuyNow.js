@@ -42,9 +42,14 @@ const PopupBuyNow = ({ show, onClose, product, userId, buyerName }) => {
   const catKey = (product.categorySlug || product.category || '').toString();
   const categoryDiscount = getFor(subCatKey) || getFor(catKey);
   const discount = Number(product.discount) || Number(categoryDiscount) || 0;
-  const variant = product.sizeVariants[selectedVariantIdx] || {};
-  const retailPrice = Number(variant.priceRetail) || 0;
-  const wholesalePrice = Number(variant.priceWholesale) || 0;
+  const hasVariants = Array.isArray(product.sizeVariants) && product.sizeVariants.length > 0;
+  const variant = hasVariants ? (product.sizeVariants[selectedVariantIdx] || {}) : {};
+  const retailPrice = hasVariants 
+    ? (Number(variant.priceRetail) || 0) 
+    : (Number(product.priceRetail) || Number(product.price) || 0);
+  const wholesalePrice = hasVariants 
+    ? (Number(variant.priceWholesale) || 0) 
+    : (Number(product.priceWholesale) || Number(product.price) || 0);
   const retailAfterDisc = discount > 0 ? Math.round(retailPrice * (1 - discount / 100)) : retailPrice;
   const wholesaleAfterDisc = discount > 0 ? Math.round(wholesalePrice * (1 - discount / 100)) : wholesalePrice;
   const minWholesale = Number(product.minWholesale) || 1;
@@ -62,7 +67,7 @@ const PopupBuyNow = ({ show, onClose, product, userId, buyerName }) => {
       const retailAfterDisc = discount > 0 ? Math.round(retailPrice * (1 - discount / 100)) : retailPrice;
       const wholesaleAfterDisc = discount > 0 ? Math.round(wholesalePrice * (1 - discount / 100)) : wholesalePrice;
       const activePrice = priceMode === 'wholesale' ? wholesaleAfterDisc : retailAfterDisc;
-      const variantLabel = `${variant.size}cm`;
+      const variantLabel = hasVariants && variant.size ? `${variant.size}cm` : '';
       addGuestItem({
         productId: product.id,
         name: product.name,
@@ -75,10 +80,10 @@ const PopupBuyNow = ({ show, onClose, product, userId, buyerName }) => {
         wholesaleLocked: isWholesaleQty,
         quantity,
         image: mainImage || '',
-        weight: Number(variant.weight) || Number(product.weight) || 0,
+        weight: hasVariants ? (Number(variant.weight) || Number(product.weight) || 0) : (Number(product.weight) || 0),
         variantLabel,
         discountPercent: discount,
-        variantSize: variant.size,
+        variantSize: hasVariants ? variant.size : null,
         addedAt: Date.now()
       });
       setIsProcessing(false);
@@ -95,7 +100,7 @@ const PopupBuyNow = ({ show, onClose, product, userId, buyerName }) => {
         cartItems = cartSnap.data()?.items || [];
       }
 
-      const variantLabel = `${variant.size}cm`;
+      const variantLabel = hasVariants && variant.size ? `${variant.size}cm` : '';
       const priceMode = isWholesaleQty ? 'wholesale' : 'retail';
 
       const retailAfterDisc = discount > 0 ? Math.round(retailPrice * (1 - discount / 100)) : retailPrice;
@@ -104,7 +109,7 @@ const PopupBuyNow = ({ show, onClose, product, userId, buyerName }) => {
 
       // Cari item existing (berdasarkan product + variant size saja agar mode bisa berubah dinamis)
       const existingIndex = cartItems.findIndex(
-        item => item.productId === product.id && item.variantLabel === variantLabel
+        item => item.productId === product.id && (item.variantLabel || '') === variantLabel
       );
 
       if (existingIndex >= 0) {
@@ -129,9 +134,9 @@ const PopupBuyNow = ({ show, onClose, product, userId, buyerName }) => {
           wholesaleMinApplied: wholesaleApplies ? (existing.wholesaleMinApplied || minWholesale) : null,
           wholesaleLocked: wholesaleApplies ? true : existing.wholesaleLocked,
           // update weight info to remain consistent with selected variant
-          weight: Number(variant.weight) || Number(product.weight) || 0,
-          variantWeight: variant.weight != null ? Number(variant.weight) : (product.weight ? Number(product.weight) : null),
-          variantSize: variant.size,
+          weight: hasVariants ? (Number(variant.weight) || Number(product.weight) || 0) : (Number(product.weight) || 0),
+          variantWeight: hasVariants && variant.weight != null ? Number(variant.weight) : (product.weight ? Number(product.weight) : null),
+          variantSize: hasVariants ? variant.size : null,
         };
       } else {
         cartItems.push({
@@ -147,13 +152,13 @@ const PopupBuyNow = ({ show, onClose, product, userId, buyerName }) => {
           quantity,
           image: mainImage || '',
           // prefer variant weight when present
-          weight: Number(variant.weight) || Number(product.weight) || 0,
-          variantWeight: variant.weight != null ? Number(variant.weight) : (product.weight ? Number(product.weight) : null),
+          weight: hasVariants ? (Number(variant.weight) || Number(product.weight) || 0) : (Number(product.weight) || 0),
+          variantWeight: hasVariants && variant.weight != null ? Number(variant.weight) : (product.weight ? Number(product.weight) : null),
           buyerName,
           buyerId: userId,
           variantLabel,
           discountPercent: discount,
-          variantSize: variant.size,
+          variantSize: hasVariants ? variant.size : null,
           addedAt: Date.now()
         });
       }
@@ -202,55 +207,48 @@ const PopupBuyNow = ({ show, onClose, product, userId, buyerName }) => {
           />
           <h3 className="text-base font-semibold text-red-700 mb-1 text-center">{product.name}</h3>
           {/* Pilihan size */}
-          <div className="mb-3 w-full">
-            <label className="block text-sm mb-1 font-medium">Ukuran (cm)</label>
-            <select
-              className="w-full px-2 py-1 border rounded"
-              value={selectedVariantIdx}
-              onChange={e => {
-                setSelectedVariantIdx(Number(e.target.value));
-                setQuantity(1);
-              }}
-            >
-              {product.sizeVariants.map((v, idx) => (
-                <option key={idx} value={idx}>
-                  {v.size} cm
-                </option>
-              ))}
-            </select>
-          </div>
-          {/* Pilihan harga */}
-          <div className="flex gap-2 mb-3 w-full">
-            <button
-              className={`flex-1 px-3 py-2 rounded border font-bold text-sm ${
-                !isWholesaleQty ? "bg-red-100 border-red-600 text-red-700" : "bg-gray-100 border-gray-400 text-gray-700"
-              }`}
-              onClick={() => setQuantity(1)}
-            >
-              {discount > 0 && (
-                <span className="line-through text-gray-400 mr-1">
-                  Rp {formatIDR(retailPrice)}
-                </span>
+          {hasVariants && (
+            <div className="mb-3 w-full">
+              <label className="block text-sm mb-1 font-medium">Ukuran (cm)</label>
+              <select
+                className="w-full px-2 py-1 border rounded"
+                value={selectedVariantIdx}
+                onChange={e => {
+                  setSelectedVariantIdx(Number(e.target.value));
+                  setQuantity(1);
+                }}
+              >
+                {product.sizeVariants.map((v, idx) => (
+                  <option key={idx} value={idx}>
+                    {v.size} cm
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {/* Tampilan harga */}
+          <div className="mb-4 w-full">
+            <div className="bg-red-50 border border-red-100 rounded-xl p-3 flex flex-col items-center justify-center shadow-sm">
+              {discount > 0 ? (
+                <>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm text-gray-400 line-through decoration-gray-400/70">
+                      Rp {formatIDR(isWholesaleQty ? wholesalePrice : retailPrice)}
+                    </span>
+                    <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm tracking-wide">
+                      -{discount}%
+                    </span>
+                  </div>
+                  <div className="text-2xl font-black text-red-600 tracking-tight">
+                    Rp {formatIDR(activePrice)}
+                  </div>
+                </>
+              ) : (
+                <div className="text-2xl font-black text-red-600 tracking-tight">
+                  Rp {formatIDR(activePrice)}
+                </div>
               )}
-              Rp {formatIDR(retailAfterDisc)}
-              <div className="text-xs font-normal">Ecer</div>
-            </button>
-            <button
-              className={`flex-1 px-3 py-2 rounded border font-bold text-sm ${
-                isWholesaleQty ? "bg-red-100 border-red-600 text-red-700" : "bg-gray-100 border-gray-400 text-gray-700"
-              }`}
-              onClick={() => setQuantity(minWholesale)}
-            >
-              {discount > 0 && (
-                <span className="line-through text-gray-400 mr-1">
-                  Rp {formatIDR(wholesalePrice)}
-                </span>
-              )}
-              Rp {formatIDR(wholesaleAfterDisc)}
-              <div className="text-xs font-normal">
-                Grosir{product.minWholesale && <> ({product.minWholesale}+)</>}
-              </div>
-            </button>
+            </div>
           </div>
           {/* Qty input */}
           <div className="flex items-center mb-3 w-full">

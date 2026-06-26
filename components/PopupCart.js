@@ -175,16 +175,29 @@ const PopupCart = ({ show, onClose, product, userId, buyerName }) => {
             priority={true}
           />
           <h3 className="text-base font-semibold text-red-700 mb-2 text-center">{product.name}</h3>
-          {/* Harga tunggal */}
-          <div className="mb-3 w-full text-center">
-            {discount > 0 ? (
-              <>
-                <div className="text-sm text-gray-500 line-through">Rp {formatIDR(basePrice)}</div>
-                <div className="text-xl font-bold text-red-700">Rp {formatIDR(effectivePrice)}</div>
-              </>
-            ) : (
-              <div className="text-xl font-bold text-red-700">Rp {formatIDR(basePrice)}</div>
-            )}
+          {/* Tampilan harga */}
+          <div className="mb-4 w-full">
+            <div className="bg-red-50 border border-red-100 rounded-xl p-3 flex flex-col items-center justify-center shadow-sm">
+              {discount > 0 ? (
+                <>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm text-gray-400 line-through decoration-gray-400/70">
+                      Rp {formatIDR(basePrice)}
+                    </span>
+                    <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm tracking-wide">
+                      -{discount}%
+                    </span>
+                  </div>
+                  <div className="text-2xl font-black text-red-600 tracking-tight">
+                    Rp {formatIDR(effectivePrice)}
+                  </div>
+                </>
+              ) : (
+                <div className="text-2xl font-black text-red-600 tracking-tight">
+                  Rp {formatIDR(effectivePrice)}
+                </div>
+              )}
+            </div>
           </div>
           {/* Qty input selalu bisa diubah */}
           <div className="flex items-center mb-3 w-full">
