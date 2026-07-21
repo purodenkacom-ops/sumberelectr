@@ -16,7 +16,9 @@ const BannerCarousel = () => {
         querySnapshot.forEach((doc) => {
           const data = doc.data();
           if (data.images && Array.isArray(data.images)) {
-            imgArr.push(...data.images);
+            // Filter out empty or invalid image strings before setting state
+            const valid = data.images.filter((img) => typeof img === "string" && img.trim().length > 0);
+            imgArr.push(...valid);
           }
         });
         setImages(imgArr);
@@ -38,9 +40,6 @@ const BannerCarousel = () => {
 
   const goToSlide = (idx) => setCurrent(idx);
 
-  // Filter images to only valid URLs (non-empty string)
-  const validImages = images.filter((img) => typeof img === "string" && img.trim().length > 0);
-
   return (
     <div
       className="
@@ -57,8 +56,8 @@ const BannerCarousel = () => {
         mt-0
       "
     >
-      {validImages.length > 0 ? (
-        validImages.map((img, idx) => (
+      {images.length > 0 ? (
+        images.map((img, idx) => (
           <Image
             key={idx}
             src={img}
@@ -80,7 +79,7 @@ const BannerCarousel = () => {
 
       {/* Dots */}
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2 z-20">
-        {validImages.map((_, idx) => (
+        {images.map((_, idx) => (
           <button
             key={idx}
             onClick={() => goToSlide(idx)}

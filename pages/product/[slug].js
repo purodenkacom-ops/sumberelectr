@@ -12,6 +12,7 @@ import {
 import ProductCard from '@/components/ProductCard';
 import Reviews from '@/components/Reviews';
 import MiniNavbar from '@/components/MiniNavbar';
+import SubcategoryProductTable from '@/components/SubcategoryProductTable';
 import {
   FaShoppingCart,
   FaWhatsapp,
@@ -58,7 +59,7 @@ function useFirebaseAuth() {
   return { auth, user };
 }
 
-const SingleProductPage = ({ product, relatedProducts, crossProducts, reviews: initialReviews = [] }) => {
+const SingleProductPage = ({ product, relatedProducts, crossProducts, subcategoryProducts, reviews: initialReviews = [] }) => {
   const router = useRouter();
   const { auth, user } = useFirebaseAuth();
 
@@ -530,27 +531,46 @@ const SingleProductPage = ({ product, relatedProducts, crossProducts, reviews: i
             </div>
             {product.description && (
               <div className="mt-5">
-                <p
-                  className="text-sm leading-relaxed text-gray-700 whitespace-pre-line"
-                  style={
-                    isMobile && !showFullDesc
-                      ? { display: '-webkit-box', WebkitLineClamp: 12, WebkitBoxOrient: 'vertical', overflow: 'hidden' }
-                      : {}
-                  }
+                <div className="relative">
+                  <p
+                    className="text-sm leading-relaxed text-gray-700 whitespace-pre-line transition-all duration-300"
+                    style={
+                      !showFullDesc
+                        ? { display: '-webkit-box', WebkitLineClamp: 6, WebkitBoxOrient: 'vertical', overflow: 'hidden' }
+                        : {}
+                    }
+                  >
+                    {product.description}
+                  </p>
+                  {/* Gradient fade overlay saat collapsed */}
+                  {!showFullDesc && (
+                    <div
+                      className="absolute bottom-0 left-0 right-0 h-10 pointer-events-none"
+                      style={{ background: 'linear-gradient(to bottom, transparent, white)' }}
+                    />
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowFullDesc(s => !s)}
+                  className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-red-600 hover:text-red-700 transition-colors"
                 >
-                  {product.description}
-                </p>
-                {isMobile && (
-                  <div className="mt-3 text-center">
-                    <button
-                      type="button"
-                      onClick={() => setShowFullDesc(s => !s)}
-                      className="text-sm text-primary font-medium underline"
-                    >
-                      {showFullDesc ? 'Tampilkan Sedikit' : 'Tampilkan Semua'}
-                    </button>
-                  </div>
-                )}
+                  {showFullDesc ? (
+                    <>
+                      Sembunyikan
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                      </svg>
+                    </>
+                  ) : (
+                    <>
+                      Selengkapnya
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </>
+                  )}
+                </button>
               </div>
             )}
             {/* Reviews (mobile) */}
@@ -614,6 +634,10 @@ const SingleProductPage = ({ product, relatedProducts, crossProducts, reviews: i
             </div>
           </div>
         </div>
+        
+        {/* SUBCATEGORY TABLE */}
+        <SubcategoryProductTable products={subcategoryProducts} currentProductId={product.id} />
+
         {/* RELATED */}
         {relatedProducts?.length > 0 && (
           <div className="mt-16">
@@ -738,6 +762,19 @@ export async function getStaticProps({ params }) {
 
   const product = serializeProductDoc(productDoc);
 
+  // SUBCATEGORY PRODUCTS (for table)
+  let subcategoryProducts = [];
+  const searchCat = product.subCategory || product.category;
+  if (searchCat) {
+    const field = product.subCategory ? 'subCategory' : 'category';
+    const subSnap = await adminDb
+      .collection('products')
+      .where(field, '==', searchCat)
+      .limit(30)
+      .get();
+    subcategoryProducts = subSnap.docs.map(serializeProductDoc);
+  }
+
   // RELATED (same category)
   let relatedProducts = [];
   if (product.category) {
@@ -802,7 +839,7 @@ export async function getStaticProps({ params }) {
   }
 
   return {
-    props: { product, relatedProducts, crossProducts, reviews },
+    props: { product, relatedProducts, crossProducts, subcategoryProducts, reviews },
     revalidate: 60,
   };
 }

@@ -72,7 +72,16 @@ export default function SimpleProductCard({ product = {}, onBuyNow /* canDelete,
     })();
     return () => { mounted = false; };
   }, [product?.id]);
-  const name = product?.name || 'Produk';
+  const getDisplayedName = () => {
+    let dispName = product?.name || 'Produk';
+    const catName = (product?.category || '').toString().trim();
+    if (catName && dispName.toLowerCase().includes(catName.toLowerCase())) {
+      const regex = new RegExp(catName, 'i');
+      dispName = dispName.replace(regex, '').trim();
+    }
+    return dispName || (product?.name || 'Produk');
+  };
+  const name = getDisplayedName();
   const id = product?.id || '';
 
   const handleCartClick = async () => {
@@ -102,8 +111,8 @@ export default function SimpleProductCard({ product = {}, onBuyNow /* canDelete,
         <Image src={resolvedImage} alt={name} fill className="object-cover" sizes="56px" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium text-gray-800 truncate">{name}</div>
-        <div className="text-sm text-red-600 font-semibold mt-1">
+        <div className="text-[13px] font-medium text-gray-800 truncate">{name}</div>
+        <div className="text-[13px] text-red-600 font-semibold mt-1">
           {(() => {
             const src = fullProduct || product || {};
             // determine minimal price from sizeVariants or price fields

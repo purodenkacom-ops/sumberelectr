@@ -162,6 +162,17 @@ const ProductCard = ({ product, onAddToCart }) => {
   const mainImage = getFirstImage();
   const imageSrc = mainImage || '/logo.png';
 
+  const getDisplayedName = () => {
+    let dispName = product.name || '';
+    const catName = (product.category || '').toString().trim();
+    if (catName && dispName.toLowerCase().includes(catName.toLowerCase())) {
+      const regex = new RegExp(catName, 'i');
+      dispName = dispName.replace(regex, '').trim();
+    }
+    return dispName || product.name;
+  };
+  const displayedName = getDisplayedName();
+
   return (
     <>
       <Link
@@ -224,23 +235,28 @@ const ProductCard = ({ product, onAddToCart }) => {
         </div>
 
         <div className="p-3 pb-7 relative">
-          <h3 className="text-sm font-semibold line-clamp-1 text-red-700">
-            {product.name}
+          <h3 className="text-[13px] leading-snug font-semibold line-clamp-2 text-red-700 min-h-[2.5rem]">
+            {displayedName}
           </h3>
-          <p className="text-red-600 font-bold text-sm">
+          <div className="text-red-600 font-bold text-sm mt-1">
             {discount > 0 ? (
               <>
-                <span className="line-through text-gray-500 mr-2">
-                  Rp {formatIDR(minPrice)}
+                <span className="line-through text-gray-500 mr-2 text-xs">
+                  Rp {formatIDR(product.minPriceGroup || minPrice)}
+                  {product.maxPriceGroup && product.maxPriceGroup !== (product.minPriceGroup || minPrice) && ` - Rp ${formatIDR(product.maxPriceGroup)}`}
                 </span>
-                <span className="text-red-600 font-bold">
-                  Rp {formatIDR(priceAfterDiscount)}
+                <span className="text-red-600 font-bold block sm:inline">
+                  Rp {formatIDR(product.minPriceGroup ? Math.round(product.minPriceGroup * (1 - discount / 100)) : priceAfterDiscount)}
+                  {product.maxPriceGroup && product.maxPriceGroup !== (product.minPriceGroup || minPrice) && ` - Rp ${formatIDR(Math.round(product.maxPriceGroup * (1 - discount / 100)))}`}
                 </span>
               </>
             ) : (
-              <>Rp {formatIDR(minPrice)}</>
+              <>
+                Rp {formatIDR(product.minPriceGroup || minPrice)}
+                {product.maxPriceGroup && product.maxPriceGroup !== (product.minPriceGroup || minPrice) && ` - Rp ${formatIDR(product.maxPriceGroup)}`}
+              </>
             )}
-          </p>
+          </div>
           <div className="flex items-center text-xs mt-1 text-gray-600">
             <FaStar className="text-yellow-500 mr-1" size={12} />
             <span>{product.rating || '-'}</span>

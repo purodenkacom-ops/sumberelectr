@@ -533,78 +533,83 @@ const CartPage = () => {
             {cartItems.map((item, idx) => {
               const key = getKey(item, idx);
               return (
-                <div key={key} className="bg-white border rounded-lg shadow-sm p-3 flex gap-3 opacity-100">
+                <div key={key} className="bg-white border rounded-xl p-4 flex gap-4 transition hover:shadow-md items-center">
                   <input
                     type="checkbox"
                     checked={selectedKeys.includes(key)}
                     onChange={() => handleSelectItem(key)}
-                    className="accent-red-600 mt-2"
+                    className="w-5 h-5 accent-red-600 cursor-pointer rounded border-gray-300"
                   />
-                  <Image
-                    src={item.image || '/placeholder.png'}
-                    alt={item.name}
-                    width={56}
-                    height={56}
-                    className="w-14 h-14 object-cover rounded-md border"
-                    priority
-                  />
-                  <div className="flex-1 flex flex-col justify-between">
-                    <div>
-                      <p className="font-medium text-sm">{item.name}</p>
-                      {item.variant && (
-                        <p className="text-xs text-gray-500">Varian: {item.variant}</p>
-                      )}
-                      <p className="text-red-600 font-bold text-sm mt-1">
-                        Rp {Number(item.price).toLocaleString('id-ID')}
-                      </p>
+                  <div className="relative w-20 h-20 flex-shrink-0 bg-gray-50 rounded-lg overflow-hidden border">
+                    <Image 
+                      src={item.image || '/placeholder.png'} 
+                      alt={item.name} 
+                      fill 
+                      className="object-cover"
+                      sizes="80px"
+                    />
+                  </div>
+                  
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-start gap-2">
+                      <div>
+                        <p className="font-semibold text-gray-800 text-sm md:text-base leading-snug line-clamp-2">
+                          {item.name}
+                        </p>
+                        {item.variant && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Varian: <span className="font-medium text-gray-700">{item.variant}</span>
+                          </p>
+                        )}
+                      </div>
+                      <button 
+                        onClick={() => handleRemoveItem(key)} 
+                        className="text-gray-400 hover:text-red-600 p-1 transition-colors"
+                        title="Hapus item"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                      </button>
+                    </div>
+                    
+                    <div className="flex justify-between items-end mt-3">
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-2">
+                          <p className="text-red-600 font-bold text-sm md:text-base">
+                            Rp {Number(item.price).toLocaleString('id-ID')}
+                          </p>
+                          {item.priceMode === 'wholesale' && (
+                            <span className="bg-green-100 text-green-700 font-bold text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider">
+                              Grosir
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center border rounded-lg overflow-hidden bg-white">
+                        <button
+                          onClick={() => handleQuantityChange(key, item.quantity - 1)}
+                          disabled={
+                            item.priceMode === 'wholesale' &&
+                            item.quantity <= (item.wholesaleMinApplied || item.wholesaleMinQty || item.wholesaleMin || item.minWholesaleQty || 0)
+                          }
+                          className={`w-8 h-8 flex items-center justify-center text-lg font-medium transition-colors ${
+                            (item.priceMode === 'wholesale' && item.quantity <= (item.wholesaleMinApplied || item.wholesaleMinQty || item.wholesaleMin || item.minWholesaleQty || 0))
+                              ? 'text-gray-300 bg-gray-50 cursor-not-allowed'
+                              : 'text-gray-600 hover:bg-gray-100 active:bg-gray-200 cursor-pointer'
+                          }`}
+                        >−</button>
+                        <span className="w-10 text-center text-sm font-semibold text-gray-700 select-none">
+                          {item.quantity}
+                        </span>
+                        <button
+                          onClick={() => handleQuantityChange(key, item.quantity + 1)}
+                          className="w-8 h-8 flex items-center justify-center text-gray-600 text-lg font-medium hover:bg-gray-100 active:bg-gray-200 transition-colors"
+                        >+</button>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex flex-col items-end justify-between">
-                    <button
-                      onClick={() => handleRemoveItem(key)}
-                      className="text-gray-400 hover:text-red-600"
-                      title="Hapus item"
-                    >
-                      &times;
-                    </button>
-                    <div className="flex items-center mt-2">
-                      <button
-                        onClick={() => handleQuantityChange(key, item.quantity - 1)}
-                        disabled={
-                          item.priceMode === 'wholesale' &&
-                          item.quantity <= (item.wholesaleMinApplied
-                            || item.wholesaleMinQty
-                            || item.wholesaleMin
-                            || item.minWholesaleQty
-                            || 0)
-                        }
-                        className={`px-2 rounded ${
-                          (item.priceMode === 'wholesale' &&
-                           item.quantity <= (item.wholesaleMinApplied
-                             || item.wholesaleMinQty
-                             || item.wholesaleMin
-                             || item.minWholesaleQty
-                             || 0))
-                            ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                            : 'bg-gray-200'
-                        }`}
-                      >-</button>
-                      <span className="px-3">{item.quantity}</span>
-                      <button
-                        onClick={() => handleQuantityChange(key, item.quantity + 1)}
-                        className="px-2 rounded bg-gray-200"
-                      >+</button>
-                    </div>
-                  </div>
-                  {item.priceMode === 'wholesale' ? (
-                    <span className="inline-block bg-green-100 text-green-700 text-[10px] px-2 py-[2px] rounded mt-1">
-                      Grosir
-                    </span>
-                  ) : (
-                    <span className="inline-block bg-gray-100 text-gray-600 text-[10px] px-2 py-[2px] rounded mt-1">
-                      Ecer
-                    </span>
-                  )}
                 </div>
               );
             })}

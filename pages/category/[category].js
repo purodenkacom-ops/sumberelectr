@@ -1,5 +1,6 @@
 // pages/category/[category].js
 import { useState, useMemo, useEffect } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/router';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { firestore } from '@/utils/firebase';
@@ -27,10 +28,24 @@ export async function getServerSideProps(context) {
       };
     });
 
+    let categoryData = null;
+    const catQuery = query(collection(firestore, 'categories'), where('slug', '==', category));
+    const catSnap = await getDocs(catQuery);
+    if (!catSnap.empty) {
+      const cData = catSnap.docs[0].data();
+      categoryData = {
+        id: catSnap.docs[0].id,
+        name: cData.name || null,
+        slug: cData.slug || null,
+        banner: cData.banner || null
+      };
+    }
+
     return {
       props: {
         category,
         products,
+        categoryData,
       },
     };
   } catch (error) {
@@ -41,7 +56,7 @@ export async function getServerSideProps(context) {
   }
 }
 
-export default function CategoryPage({ category, products }) {
+export default function CategoryPage({ category, products, categoryData }) {
   const router = useRouter();
   const [sortMode, setSortMode] = useState('default');
   const [subCategoryFilter, setSubCategoryFilter] = useState('');
@@ -78,6 +93,36 @@ export default function CategoryPage({ category, products }) {
 
     if (subCategoryFilter) {
       out = out.filter(p => (p.subCategorySlug || p.subCategory || '').toLowerCase() === subCategoryFilter.toLowerCase());
+    } else {
+      // Group by subcategory when no filter is applied
+      const groups = {};
+      out.forEach(p => {
+        const subCat = (p.subCategorySlug || p.subCategory || 'lain-lain').toLowerCase();
+        if (!groups[subCat]) {
+          groups[subCat] = {
+            ...p,
+            _allPrices: [],
+            _allSold: 0
+          };
+        }
+        groups[subCat]._allPrices.push(getMinPrice(p));
+        groups[subCat]._allSold += Number(p.sold ?? p.salesCount ?? 0);
+      });
+
+      out = Object.values(groups).map(g => {
+        const validPrices = g._allPrices.filter(pr => pr > 0);
+        if (validPrices.length > 0) {
+          g.minPriceGroup = Math.min(...validPrices);
+          g.maxPriceGroup = Math.max(...validPrices);
+        } else {
+          g.minPriceGroup = 0;
+          g.maxPriceGroup = 0;
+        }
+        g.sold = g._allSold;
+        delete g._allPrices;
+        delete g._allSold;
+        return g;
+      });
     }
 
     switch (sortMode) {
@@ -85,10 +130,10 @@ export default function CategoryPage({ category, products }) {
         out.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'id'));
         break;
       case 'price-asc':
-        out.sort((a, b) => (getMinPrice(a) || 0) - (getMinPrice(b) || 0));
+        out.sort((a, b) => ((a.minPriceGroup ?? getMinPrice(a)) || 0) - ((b.minPriceGroup ?? getMinPrice(b)) || 0));
         break;
       case 'price-desc':
-        out.sort((a, b) => (getMinPrice(b) || 0) - (getMinPrice(a) || 0));
+        out.sort((a, b) => ((b.minPriceGroup ?? getMinPrice(b)) || 0) - ((a.minPriceGroup ?? getMinPrice(a)) || 0));
         break;
       case 'best-selling':
         out.sort((a, b) => (Number(b.sold ?? b.salesCount ?? 0)) - (Number(a.sold ?? a.salesCount ?? 0)));
@@ -101,7 +146,6 @@ export default function CategoryPage({ category, products }) {
         });
         break;
       default:
-        // Default: keep original order from Firestore
         break;
     }
     return out;
@@ -183,8 +227,20 @@ export default function CategoryPage({ category, products }) {
 
           {/* Main content */}
           <div>
+            {categoryData?.banner && (
+              <div className="mb-6 w-full overflow-hidden shadow-sm flex justify-center bg-gray-50 rounded-xl">
+                <Image
+                  src={categoryData.banner}
+                  alt={`Banner ${categoryData.name || readableCategory}`}
+                  width={1057}
+                  height={150}
+                  className="w-full h-auto object-cover"
+                  priority
+                />
+              </div>
+            )}
             <h1 className="text-2xl font-bold text-red-700 mb-6 capitalize">
-              {readableCategory}
+              {categoryData?.name || readableCategory}
             </h1>
 
             {/* Mobile Category Trigger */}

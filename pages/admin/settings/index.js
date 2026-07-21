@@ -33,10 +33,15 @@ export default function AdminSettingsPage() {
   const [chatOk, setChatOk] = useState('');
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('');
+  const [banner, setBanner] = useState('');
   const [parentId, setParentId] = useState('');
   const [imgUploading, setImgUploading] = useState(false);
+  const [bannerUploading, setBannerUploading] = useState(false);
   const fileInputRef = useRef(null);
-  const { uploadFile } = useStorage();
+  const bannerInputRef = useRef(null);
+  const existingBannerInputRef = useRef(null);
+  const [activeUploadCatId, setActiveUploadCatId] = useState(null);
+  const { uploadFile, deleteFile } = useStorage();
   const [loading, setLoading] = useState(false);
   const [cats, setCats] = useState([]);
   const [catEdits, setCatEdits] = useState({}); // temp edits per cat id
@@ -468,7 +473,8 @@ export default function AdminSettingsPage() {
             discountPercent: cat.discountPercent ?? '',
             discountActive: cat.discountActive ?? false,
             discountStart: toLocalInputValue(cat.discountStart),
-            discountEnd: toLocalInputValue(cat.discountEnd)
+            discountEnd: toLocalInputValue(cat.discountEnd),
+            banner: cat.banner ?? ''
           };
         });
         return next;
@@ -516,6 +522,7 @@ export default function AdminSettingsPage() {
         name: n,
         slug,
         icon: icon.trim() || '',
+        banner: banner.trim() || '',
         active: true,
         parentId: parentId || null,
         createdAt: serverTimestamp()
@@ -523,6 +530,7 @@ export default function AdminSettingsPage() {
       setOk('Kategori ditambah.');
       setName('');
       setIcon('');
+      setBanner('');
       setParentId('');
     } catch (err) {
       setError(err.message || 'Gagal menambah.');
@@ -553,6 +561,80 @@ export default function AdminSettingsPage() {
     } finally {
       setImgUploading(false);
       e.target.value = '';
+    }
+  };
+
+  const handleChooseBanner = () => {
+    bannerInputRef.current?.click?.();
+  };
+
+  const handleBannerChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setBannerUploading(true);
+      const folder = 'categories/banners';
+      const fileNameSlug = file.name.toLowerCase().replace(/[^a-z0-9._-]+/g,'-');
+      const now = Date.now();
+      const path = `${folder}/${now}-${fileNameSlug}`;
+      const downloadUrl = await uploadFile(file, path);
+      if (downloadUrl) setBanner(downloadUrl);
+    } catch (err) {
+      alert(err.message || 'Upload gagal');
+    } finally {
+      setBannerUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleChooseExistingBanner = (catId) => {
+    setActiveUploadCatId(catId);
+    existingBannerInputRef.current?.click?.();
+  };
+
+  const handleExistingBannerChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeUploadCatId) return;
+    try {
+      const folder = 'categories/banners';
+      const fileNameSlug = file.name.toLowerCase().replace(/[^a-z0-9._-]+/g,'-');
+      const now = Date.now();
+      const path = `${folder}/${now}-${fileNameSlug}`;
+      const downloadUrl = await uploadFile(file, path);
+      if (downloadUrl) {
+        setEdit(activeUploadCatId, 'banner', downloadUrl);
+      }
+    } catch (err) {
+      alert(err.message || 'Upload gagal');
+    } finally {
+      setActiveUploadCatId(null);
+      e.target.value = '';
+    }
+  };
+
+  const handleDeleteExistingBanner = async (cat, bannerUrl) => {
+    if (!bannerUrl) return;
+    if (!confirm('Hapus banner ini dari kategori?')) return;
+    
+    try {
+      // Hapus file dari storage jika merupakan URL firebase
+      if (bannerUrl.includes('firebasestorage')) {
+        await deleteFile(bannerUrl);
+      }
+      
+      // Update dokumen firestore untuk menghilangkan banner
+      const catRef = doc(firestore, 'categories', cat.id);
+      await fsUpdateDoc(catRef, {
+        banner: '',
+        updatedAt: serverTimestamp()
+      });
+      
+      // Update local edit state
+      setEdit(cat.id, 'banner', '');
+      
+      alert('Banner berhasil dihapus');
+    } catch (err) {
+      alert(err.message || 'Gagal menghapus banner');
     }
   };
 
@@ -610,6 +692,7 @@ export default function AdminSettingsPage() {
       discountActive: !!ed.discountActive,
       discountStart: fromLocalInputValue(ed.discountStart) || null,
       discountEnd: fromLocalInputValue(ed.discountEnd) || null,
+      banner: ed.banner !== undefined ? ed.banner : (cat.banner || ''),
       updatedAt: serverTimestamp()
     };
     try {
@@ -976,6 +1059,41 @@ export default function AdminSettingsPage() {
               </div>
             )}
           </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              URL Banner (opsional)
+            </label>
+            <div className="flex gap-2">
+              <input
+                value={banner}
+                onChange={e => setBanner(e.target.value)}
+                className="flex-1 px-3 py-2 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-orange-400"
+                placeholder="https://..."
+              />
+              <button
+                type="button"
+                onClick={handleChooseBanner}
+                disabled={bannerUploading}
+                className="px-3 py-2 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 border disabled:opacity-60"
+                title="Upload ke Firebase Storage"
+              >{bannerUploading ? 'Mengunggah…' : 'Upload'}</button>
+              <input
+                ref={bannerInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleBannerChange}
+              />
+            </div>
+            {banner?.trim() && (
+              <div className="mt-2 text-xs text-gray-500">
+                Pratinjau:
+                <div className="mt-1">
+                  <img src={banner} alt="banner preview" className="h-20 w-auto max-w-full object-cover border rounded" />
+                </div>
+              </div>
+            )}
+          </div>
           {error && (
             <div className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded">
               {error}
@@ -1043,7 +1161,7 @@ export default function AdminSettingsPage() {
                   </button>
                 </div>
 
-                {/* Discount controls */}
+                {/* Discount and Banner controls */}
                 {cat.parentId ? (
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
                   <div>
@@ -1084,14 +1202,9 @@ export default function AdminSettingsPage() {
                       onChange={(e) => setEdit(cat.id, 'discountActive', e.target.checked)}
                       className="h-4 w-4 text-orange-600 border-gray-300 rounded"
                     />
-                    <label htmlFor={`active-${cat.id}`} className="text-sm text-gray-700">Aktif</label>
+                    <label htmlFor={`active-${cat.id}`} className="text-sm text-gray-700">Diskon Aktif</label>
                   </div>
                   <div className="flex gap-2 justify-end">
-                    <button
-                      type="button"
-                      onClick={() => saveCategoryDiscount(cat)}
-                      className="px-3 py-2 text-sm rounded bg-orange-600 text-white hover:bg-orange-700"
-                    >Simpan Diskon</button>
                     <button
                       type="button"
                       onClick={() => setEdit(cat.id, 'discountPercent', 0) || setEdit(cat.id, 'discountActive', false)}
@@ -1100,12 +1213,61 @@ export default function AdminSettingsPage() {
                   </div>
                 </div>
                 ) : (
-                  <div className="text-xs text-gray-500 italic py-2">Diskon hanya dapat diatur pada Subkategori.</div>
+                  <div className="text-[10px] text-gray-400 italic py-1">Pengaturan diskon hanya untuk subkategori.</div>
                 )}
+                
+                <div className="border-t pt-3 mt-1">
+                  <label className="block text-[11px] text-gray-600 mb-1">Banner Kategori URL</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={catEdits[cat.id]?.banner !== undefined ? catEdits[cat.id].banner : (cat.banner || '')}
+                      onChange={(e) => setEdit(cat.id, 'banner', e.target.value)}
+                      className="flex-1 px-3 py-2 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-orange-400"
+                      placeholder="https://..."
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleChooseExistingBanner(cat.id)}
+                      className="px-3 py-2 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 border whitespace-nowrap"
+                    >Upload Banner</button>
+                  </div>
+                  {(catEdits[cat.id]?.banner !== undefined ? catEdits[cat.id].banner : cat.banner)?.trim() && (
+                    <div className="mt-2 text-xs text-gray-500">
+                      <div className="flex justify-between items-center mb-1">
+                        <span>Pratinjau Banner:</span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteExistingBanner(cat, catEdits[cat.id]?.banner !== undefined ? catEdits[cat.id].banner : cat.banner)}
+                          className="text-[10px] text-red-600 hover:underline"
+                        >
+                          Hapus Banner
+                        </button>
+                      </div>
+                      <div>
+                        <img src={catEdits[cat.id]?.banner !== undefined ? catEdits[cat.id].banner : cat.banner} alt="banner" className="h-16 w-auto max-w-full object-cover border rounded" />
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-end mt-3">
+                    <button
+                      type="button"
+                      onClick={() => saveCategoryDiscount(cat)}
+                      className="px-3 py-2 text-sm rounded bg-orange-600 text-white hover:bg-orange-700"
+                    >Simpan Setelan</button>
+                  </div>
+                </div>
               </div>
             ));
             })()}
           </div>
+          <input
+            ref={existingBannerInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleExistingBannerChange}
+          />
         </div>
       </div>
       {/** Spacer bottom */}
