@@ -42,15 +42,16 @@ function toTitleCase(str) {
   return str.replace(/\b\w/g, c => c.toUpperCase());
 }
 
-export default function MiniNavbar() {
+export default function MiniNavbar({ backUrl, backLabel }) {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
   const [userId, setUserId] = useState(null);
   const [cartCount, setCartCount] = useState(0);
-  const [backInfo, setBackInfo] = useState({ label: 'Beranda', href: '/' });
+  const [backInfo, setBackInfo] = useState({ label: backLabel || 'Beranda', href: backUrl || '/' });
 
-  // Baca referrer saat mount (client-side only)
+  // Baca referrer saat mount (client-side only) jika tidak ada backUrl eksplisit
   useEffect(() => {
+    if (backUrl) return; // Gunakan props jika ada
     const stored = sessionStorage.getItem('productReferrer');
     if (stored) {
       setBackInfo(getBackInfo(stored));
@@ -65,7 +66,7 @@ export default function MiniNavbar() {
         }
       } catch {}
     }
-  }, []);
+  }, [backUrl]);
 
   // Simpan referrer setiap kali route berubah (sebelum pergi ke halaman produk)
   useEffect(() => {

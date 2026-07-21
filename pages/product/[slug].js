@@ -439,7 +439,10 @@ const SingleProductPage = ({ product, relatedProducts, crossProducts, subcategor
       </Head>
 
       <main className="max-w-6xl w-full mx-auto px-4 sm:px-4 md:px-6 pt-4 pb-28">
-        <MiniNavbar />
+        <MiniNavbar 
+          backUrl={product.categorySlug ? `/category/${product.categorySlug}` : '/'} 
+          backLabel={product.categorySlug ? 'Kategori' : 'Beranda'}
+        />
         <div className="grid lg:grid-cols-2 gap-10">
           {/* LEFT: GALLERY */}
           <div className="relative">

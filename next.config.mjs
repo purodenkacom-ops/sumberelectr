@@ -2,6 +2,8 @@
 const nextConfig = {
   reactStrictMode: true,
   images: {
+    unoptimized: true,
+    minimumCacheTTL: 31536000,
     domains: [
       'firebasestorage.googleapis.com',
       'lh3.googleusercontent.com',

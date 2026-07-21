@@ -168,7 +168,7 @@ export default function CategoryPage({ category, products, categoryData }) {
 
       <div className="sticky top-4 z-40">
         <div className="max-w-7xl mx-auto px-4 py-2">
-          <MiniNavbar />
+          <MiniNavbar backUrl="/" backLabel="Beranda" />
         </div>
       </div>
       <main
