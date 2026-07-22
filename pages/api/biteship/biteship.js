@@ -144,7 +144,10 @@ export default async function handler(req, res) {
     const pricing = await getShippingCost(ratePayload);
     return res.status(200).json({ mode: 'regular', pricing });
   } catch (error) {
-    console.error('[biteship rates error]', error);
-    return res.status(500).json({ message: error.message || 'Gagal ambil tarif Biteship' });
+    console.error('[biteship rates error]', error.response?.data || error);
+    return res.status(500).json({ 
+      message: error.message || 'Gagal ambil tarif Biteship',
+      details: error.response?.data || String(error)
+    });
   }
 }

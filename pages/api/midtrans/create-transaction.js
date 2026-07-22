@@ -96,7 +96,10 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ token: response.token, redirect_url: response.redirect_url });
   } catch (e) {
-    console.error('midtrans/create-transaction error', e);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    console.error('midtrans/create-transaction error', e.response?.data || e);
+    return res.status(500).json({ 
+      error: 'Internal Server Error',
+      details: e.response?.data || e.message || String(e)
+    });
   }
 }
