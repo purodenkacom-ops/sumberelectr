@@ -108,7 +108,7 @@ export default function SimpleProductCard({ product = {}, onBuyNow /* canDelete,
   return (
     <div className="w-full flex items-center gap-3 p-2 rounded-lg border bg-white">
       <div className="relative w-14 h-14 flex-shrink-0 rounded-md overflow-hidden bg-gray-100">
-        <Image src={resolvedImage} alt={name} fill className="object-cover" sizes="56px" />
+        <Image src={resolvedImage} alt={name} fill className="object-contain" sizes="56px" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="text-[13px] font-medium text-gray-800 truncate">{name}</div>

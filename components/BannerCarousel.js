@@ -64,7 +64,7 @@ const BannerCarousel = () => {
             alt={`banner-${idx}`}
             fill
             sizes="100vw"
-            className={`absolute inset-0 w-full h-full object-cover object-center
+            className={`absolute inset-0 w-full h-full object-contain object-center
               transition-opacity duration-700
               ${idx === current ? "opacity-100" : "opacity-0"}
             `}

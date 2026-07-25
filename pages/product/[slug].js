@@ -457,7 +457,7 @@ const SingleProductPage = ({ product, relatedProducts, crossProducts, subcategor
                 alt={product.name}
                 width={600}
                 height={600}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-contain"
                 priority
               />
             </div>

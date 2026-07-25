@@ -480,11 +480,20 @@ export default function PaymentPage() {
     document.body.appendChild(s);
   },[showMap]);
 
+  // Bersihkan referensi map saat modal ditutup agar diinisialisasi ulang saat dibuka kembali
+  useEffect(() => {
+    if (!showMap) {
+      if (mapObjRef.current) mapObjRef.current = null;
+      if (markerRef.current) markerRef.current = null;
+    }
+  }, [showMap]);
+
   // Inisialisasi map
   useEffect(()=>{
     if(!showMap || !mapReady) return;
     if(!mapContainerRef.current) return;
     if(!window.google) return;
+    
     if(!mapObjRef.current){
       mapObjRef.current=new window.google.maps.Map(mapContainerRef.current,{
         center:{lat: ORIGIN_LAT, lng: ORIGIN_LNG},
@@ -493,6 +502,37 @@ export default function PaymentPage() {
         streetViewControl:false,
         fullscreenControl:false
       });
+      
+      const createOrUpdateMarker = (lat, lng) => {
+        if(!markerRef.current){
+          markerRef.current=new window.google.maps.Marker({
+            position:{lat,lng},
+            map:mapObjRef.current,
+            draggable:true
+          });
+          markerRef.current.addListener('dragend',(ev)=>{
+            const la=ev.latLng.lat();
+            const ln=ev.latLng.lng();
+            const dist=calcDistanceKm(ORIGIN_LAT,ORIGIN_LNG,la,ln);
+            if(dist>INSTANT_RADIUS_KM){
+              setInstantError(`Jarak ${dist.toFixed(2)} km > ${INSTANT_RADIUS_KM} km. Geser kembali.`);
+              // Revert marker to previous valid position
+              setPickedCoord(prev => {
+                if (prev && markerRef.current) {
+                  markerRef.current.setPosition(prev);
+                }
+                return prev;
+              });
+              return;
+            }
+            setInstantError('');
+            setPickedCoord({lat:la,lng:ln});
+          });
+        } else {
+          markerRef.current.setPosition({lat,lng});
+        }
+      };
+
       mapObjRef.current.addListener('click', (e)=>{
         const lat=e.latLng.lat();
         const lng=e.latLng.lng();
@@ -503,34 +543,15 @@ export default function PaymentPage() {
         }
         setInstantError('');
         setPickedCoord({lat,lng});
-        if(!markerRef.current){
-          markerRef.current=new window.google.maps.Marker({
-            position:{lat,lng},
-            map:mapObjRef.current,
-            draggable:true
-          });
-          markerRef.current.addListener('dragend',(ev)=>{
-            const la=ev.latLng.lat();
-            const ln=ev.latLng.lng();
-              const dist=calcDistanceKm(ORIGIN_LAT,ORIGIN_LNG,la,ln);
-              if(dist>INSTANT_RADIUS_KM){
-                setInstantError(`Jarak ${dist.toFixed(2)} km > ${INSTANT_RADIUS_KM} km. Geser kembali.`);
-                markerRef.current.setPosition(pickedCoord);
-                return;
-              }
-              setInstantError('');
-              setPickedCoord({lat:la,lng:ln});
-          });
-        } else {
-          markerRef.current.setPosition({lat,lng});
-        }
+        createOrUpdateMarker(lat, lng);
       });
-    }
-    if (window._prefillInstantCenter && isValidCoord(window._prefillInstantCenter.lat, window._prefillInstantCenter.lng)) {
-      mapObjRef.current.setCenter({
-        lat: window._prefillInstantCenter.lat,
-        lng: window._prefillInstantCenter.lng
-      });
+
+      // Tampilkan marker saat map pertama kali dibuka jika sudah ada koordinat
+      const initCoord = pickedCoord || window._prefillInstantCenter;
+      if (initCoord && isValidCoord(initCoord.lat, initCoord.lng)) {
+        mapObjRef.current.setCenter(initCoord);
+        createOrUpdateMarker(initCoord.lat, initCoord.lng);
+      }
     }
   },[showMap,mapReady]);
 

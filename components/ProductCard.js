@@ -181,9 +181,9 @@ const ProductCard = ({ product, onAddToCart }) => {
         tabIndex={0}
         ref={containerRef}
       >
-        <div className="relative w-full h-40 aspect-square bg-gray-100">
+        <div className="relative w-full bg-gray-100 flex items-center justify-center">
           {showVideo && supabaseVideoUrl ? (
-            <div className="absolute inset-0 overflow-hidden">
+            <div className="relative w-full aspect-square overflow-hidden">
               <video
                 ref={videoRef}
                 src={supabaseVideoUrl}
@@ -204,13 +204,11 @@ const ProductCard = ({ product, onAddToCart }) => {
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 via-black/0 to-transparent" />
             </div>
           ) : (
-            <Image
+            <img
               src={imageSrc}
               alt={product.name}
-              fill
-              sizes="(max-width: 768px) 100vw, 400px"
-              className="absolute inset-0 w-full h-full object-cover"
-              priority={false}
+              className="w-full h-auto object-contain"
+              loading="lazy"
             />
           )}
 

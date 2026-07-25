@@ -462,18 +462,19 @@ const CartPage = () => {
 
       await setDoc(doc(firestore, 'invoices', invoiceId), invoiceData);
 
-      // Hapus item terpilih dari cart
+      // Jangan hapus item dari keranjang, tapi tandai dengan pendingInvoiceId
+      // agar tidak hilang jika user kembali dari halaman pembayaran.
+      // Item akan dihapus secara otomatis saat pembayaran berhasil (di payment page).
       const selectedKeySet = new Set(selectedKeys);
-      const remaining = cartItems.filter((it, idx) => !selectedKeySet.has(getKey(it, idx)));
+      const updatedItems = cartItems.map((it, idx) => {
+        if (selectedKeySet.has(getKey(it, idx))) {
+          return { ...it, pendingInvoiceId: invoiceId };
+        }
+        return it;
+      });
 
-      if (remaining.length > 0) {
-        await updateDoc(cartRef, { items: applyPricingToCartItems(remaining) });
-        setCartItems(remaining);
-      } else {
-        // Cart kosong: hapus dokumen
-        await deleteDoc(cartRef);
-        setCartItems([]);
-      }
+      await updateDoc(cartRef, { items: applyPricingToCartItems(updatedItems) });
+      // Tidak perlu setCartItems karena kita akan langsung pindah ke halaman pembayaran
 
       router.push(`/product/payment/${invoiceId}`);
     } catch (err) {
