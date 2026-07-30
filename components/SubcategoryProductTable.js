@@ -6,6 +6,8 @@ import { useDiscounts } from '@/context/DiscountContext';
 import { getEffectiveProductSlug } from '@/utils/productSlug';
 import { firestore, auth } from '@/utils/firebase';
 import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import ProductFilterBar from '@/components/ProductFilterBar';
+import { computeAvailableFilters, applyProductFilters } from '@/utils/productFilters';
 
 const formatIDR = (val) => {
   return typeof val === 'number'
@@ -265,7 +267,8 @@ const TableRow = ({ product, currentProductId, cartItems }) => {
 export default function SubcategoryProductTable({ products, currentProductId }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [phaseFilter, setPhaseFilter] = useState(''); // '', '1P', '2P', '3P', '4P'
-  const [typeFilter, setTypeFilter] = useState('');   // '', 'H', 'F', 'N', 'B', etc.
+  const [typeFilter, setTypeFilter] = useState('');   // '', 'H', 'F', 'N', 'B', etc. (MCCB)
+  const [kontaktorTypeFilter, setKontaktorTypeFilter] = useState(''); // '', 'M', 'E', 'F', 'Q', etc.
   const [ampereFilter, setAmpereFilter] = useState(''); // '', '38A', '65A'
   const [voltageFilter, setVoltageFilter] = useState(''); // '', '220VAC', '48VAC'
   const [cartItems, setCartItems] = useState([]);
@@ -291,105 +294,16 @@ export default function SubcategoryProductTable({ products, currentProductId }) 
   
   if (!products || products.length === 0) return null;
 
-  // Detect if products are Kontaktor LC1D
-  const isKontaktorLC1D = products.some(p => {
-    const name = (p.name || '').toLowerCase();
-    const sub = (p.subCategory || p.subCategorySlug || '').toLowerCase();
-    return name.includes('lc1d') || sub.includes('lc1d');
-  });
+  // Compute which filters are available for this subcategory
+  const { hasPhase, isMCCB, isLC1D, availablePhases, availableTypes, availableKontaktorTypes, availableAmperes, availableVoltages } =
+    computeAvailableFilters(products);
 
-  // Detect if this subcategory should show phase filter (MCB / MCCB / LC1D)
-  // Note: "mcb" is NOT a substring of "mccb" (m-c-c-b), so we must check both
-  const hasPhaseFilter = products.some(p => {
-    const sub = (p.subCategory || p.subCategorySlug || '').toLowerCase();
-    const name = (p.name || '').toLowerCase();
-    return sub.includes('mcb') || sub.includes('mccb') || name.includes('mcb') || name.includes('mccb') || isKontaktorLC1D;
-  });
+  // Apply all active filters
+  const filtered = applyProductFilters(products, { searchTerm, phaseFilter, typeFilter, kontaktorTypeFilter, ampereFilter, voltageFilter });
 
-  // Detect if products are MCCB (for Type filter)
-  const isMCCB = products.some(p => {
-    const name = (p.name || '').toLowerCase();
-    const sub = (p.subCategory || p.subCategorySlug || '').toLowerCase();
-    return name.includes('mccb') || sub.includes('mccb');
-  });
+  const handleSearch = (e) => setSearchTerm(e.target.value);
 
-  // Extract phase from product name
-  const getPhase = (name) => {
-    if (!name) return null;
-    const upper = name.toUpperCase();
-    for (let p = 4; p >= 1; p--) {
-      const tag = `${p}P`;
-      const idx = upper.indexOf(tag);
-      if (idx >= 0) {
-        const charBefore = idx === 0 ? ' ' : upper[idx - 1];
-        const charAfter = idx + tag.length >= upper.length ? ' ' : upper[idx + tag.length];
-        const beforeOk = !/[A-Z0-9]/.test(charBefore);
-        const afterOk = !/[A-Z0-9]/.test(charAfter);
-        if (beforeOk && afterOk) return tag;
-      }
-    }
-    return null;
-  };
-
-  // Extract MCCB type letter from model code: EZC250H → "H", NSX100F → "F", CVS250N → "N"
-  // Pattern: 2+ letters followed by digits followed by a single type letter
-  const getMCCBType = (name) => {
-    if (!name) return null;
-    const match = name.toUpperCase().match(/\b([A-Z]{2,}\d+)([A-Z])\b/);
-    return match ? match[2] : null;
-  };
-
-  // Extract Ampere from product name: "38A" -> "38A"
-  const getAmpere = (name) => {
-    if (!name) return null;
-    const match = name.toUpperCase().match(/\b(\d+A)\b/);
-    return match ? match[1] : null;
-  };
-
-  // Extract Voltage from product name: "220VAC" -> "220VAC", "48VAC" -> "48VAC", "220V" -> "220V"
-  const getVoltage = (name) => {
-    if (!name) return null;
-    const match = name.toUpperCase().match(/\b(\d+V(?:AC|DC)?)\b/);
-    return match ? match[1] : null;
-  };
-
-  // Get available phases from products
-  const availablePhases = hasPhaseFilter
-    ? [...new Set(products.map(p => getPhase(p.name)).filter(Boolean))].sort()
-    : [];
-
-  // Get available MCCB types from products (only if MCCB)
-  const availableTypes = isMCCB
-    ? [...new Set(products.map(p => getMCCBType(p.name)).filter(Boolean))].sort()
-    : [];
-
-  // Get available Amperes
-  const availableAmperes = isKontaktorLC1D
-    ? [...new Set(products.map(p => getAmpere(p.name)).filter(Boolean))].sort((a, b) => parseInt(a) - parseInt(b))
-    : [];
-
-  // Get available Voltages
-  const availableVoltages = isKontaktorLC1D
-    ? [...new Set(products.map(p => getVoltage(p.name)).filter(Boolean))].sort((a, b) => parseInt(a) - parseInt(b))
-    : [];
-
-  // Apply search + phase + type filter
-  const filtered = products.filter(p => {
-    const matchesSearch =
-      p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.sku || p.id)?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesPhase = !phaseFilter || getPhase(p.name) === phaseFilter;
-    const matchesType = !typeFilter || getMCCBType(p.name) === typeFilter;
-    const matchesAmpere = !ampereFilter || getAmpere(p.name) === ampereFilter;
-    const matchesVoltage = !voltageFilter || getVoltage(p.name) === voltageFilter;
-    return matchesSearch && matchesPhase && matchesType && matchesAmpere && matchesVoltage;
-  });
-
-  const handleSearch = (e) => {
-    setSearchTerm(e.target.value);
-  };
-
-  const activeFilterCount = (searchTerm ? 1 : 0) + (phaseFilter ? 1 : 0) + (typeFilter ? 1 : 0) + (ampereFilter ? 1 : 0) + (voltageFilter ? 1 : 0);
+  const activeFilterCount = (searchTerm ? 1 : 0) + (phaseFilter ? 1 : 0) + (typeFilter ? 1 : 0) + (kontaktorTypeFilter ? 1 : 0) + (ampereFilter ? 1 : 0) + (voltageFilter ? 1 : 0);
 
   return (
     <div className="mt-12 bg-white p-4 lg:p-6 rounded-xl border shadow-sm mb-4">
@@ -397,125 +311,26 @@ export default function SubcategoryProductTable({ products, currentProductId }) 
         Pilih jenis produk yang diinginkan
       </h2>
 
-      {/* Phase Filter (only for MCCB) */}
-      {hasPhaseFilter && availablePhases.length >= 1 && (
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide mr-1">Phase:</span>
-          <button
-            onClick={() => setPhaseFilter('')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
-              !phaseFilter
-                ? 'bg-red-600 text-white border-red-600 shadow-sm'
-                : 'bg-white text-gray-600 border-gray-300 hover:border-red-300 hover:text-red-600'
-            }`}
-          >
-            Semua
-          </button>
-          {availablePhases.map(phase => (
-            <button
-              key={phase}
-              onClick={() => setPhaseFilter(phaseFilter === phase ? '' : phase)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
-                phaseFilter === phase
-                  ? 'bg-red-600 text-white border-red-600 shadow-sm'
-                  : 'bg-white text-gray-600 border-gray-300 hover:border-red-300 hover:text-red-600'
-              }`}
-            >
-              {phase}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Type Filter (MCCB with type pattern) */}
-      {isMCCB && availableTypes.length >= 1 && (
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide mr-1">Type:</span>
-          <button
-            onClick={() => setTypeFilter('')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
-              !typeFilter
-                ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                : 'bg-white text-gray-600 border-gray-300 hover:border-blue-300 hover:text-blue-600'
-            }`}
-          >
-            Semua
-          </button>
-          {availableTypes.map(type => (
-            <button
-              key={type}
-              onClick={() => setTypeFilter(typeFilter === type ? '' : type)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
-                typeFilter === type
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                  : 'bg-white text-gray-600 border-gray-300 hover:border-blue-300 hover:text-blue-600'
-              }`}
-            >
-              Type {type}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Ampere Filter (Kontaktor LC1D only) */}
-      {isKontaktorLC1D && availableAmperes.length >= 1 && (
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide mr-1">Ampere:</span>
-          <button
-            onClick={() => setAmpereFilter('')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
-              !ampereFilter
-                ? 'bg-green-600 text-white border-green-600 shadow-sm'
-                : 'bg-white text-gray-600 border-gray-300 hover:border-green-300 hover:text-green-600'
-            }`}
-          >
-            Semua
-          </button>
-          {availableAmperes.map(amp => (
-            <button
-              key={amp}
-              onClick={() => setAmpereFilter(ampereFilter === amp ? '' : amp)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
-                ampereFilter === amp
-                  ? 'bg-green-600 text-white border-green-600 shadow-sm'
-                  : 'bg-white text-gray-600 border-gray-300 hover:border-green-300 hover:text-green-600'
-              }`}
-            >
-              {amp}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Voltage Filter (Kontaktor LC1D only) */}
-      {isKontaktorLC1D && availableVoltages.length >= 1 && (
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide mr-1">Voltage:</span>
-          <button
-            onClick={() => setVoltageFilter('')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
-              !voltageFilter
-                ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
-                : 'bg-white text-gray-600 border-gray-300 hover:border-purple-300 hover:text-purple-600'
-            }`}
-          >
-            Semua
-          </button>
-          {availableVoltages.map(volt => (
-            <button
-              key={volt}
-              onClick={() => setVoltageFilter(voltageFilter === volt ? '' : volt)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
-                voltageFilter === volt
-                  ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
-                  : 'bg-white text-gray-600 border-gray-300 hover:border-purple-300 hover:text-purple-600'
-              }`}
-            >
-              {volt}
-            </button>
-          ))}
-        </div>
-      )}
+      <ProductFilterBar
+        hasPhase={hasPhase}
+        isMCCB={isMCCB}
+        isLC1D={isLC1D}
+        availablePhases={availablePhases}
+        availableTypes={availableTypes}
+        availableKontaktorTypes={availableKontaktorTypes}
+        availableAmperes={availableAmperes}
+        availableVoltages={availableVoltages}
+        phaseFilter={phaseFilter}
+        typeFilter={typeFilter}
+        kontaktorTypeFilter={kontaktorTypeFilter}
+        ampereFilter={ampereFilter}
+        voltageFilter={voltageFilter}
+        setPhaseFilter={setPhaseFilter}
+        setTypeFilter={setTypeFilter}
+        setKontaktorTypeFilter={setKontaktorTypeFilter}
+        setAmpereFilter={setAmpereFilter}
+        setVoltageFilter={setVoltageFilter}
+      />
 
       {/* Header: info + search */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">

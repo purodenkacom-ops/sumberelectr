@@ -507,14 +507,28 @@ export default function AdminSettingsPage() {
     const slug = toSlug(n);
     setLoading(true);
     try {
-      // Cek duplikat
-      const qDup = query(
-        collection(firestore, 'categories'),
-        where('slug', '==', slug)
-      );
+      // Cek duplikat:
+      // - Sub-kategori (parentId ada): slug hanya perlu unik dalam parent yang sama
+      // - Kategori utama (parentId null): slug harus unik secara global di antara root kategori
+      let qDup;
+      if (parentId) {
+        qDup = query(
+          collection(firestore, 'categories'),
+          where('slug', '==', slug),
+          where('parentId', '==', parentId)
+        );
+      } else {
+        qDup = query(
+          collection(firestore, 'categories'),
+          where('slug', '==', slug),
+          where('parentId', '==', null)
+        );
+      }
       const dupSnap = await getDocs(qDup);
       if (!dupSnap.empty) {
-        setError('Kategori sudah ada.');
+        setError(parentId
+          ? 'Sub-kategori dengan nama ini sudah ada di kategori yang sama.'
+          : 'Kategori dengan slug ini sudah ada.');
         setLoading(false);
         return;
       }

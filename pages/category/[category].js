@@ -8,6 +8,8 @@ import ProductCard from '@/components/ProductCard';
 import ProductSortBar from '@/components/ProductSortBar';
 import ProductSidebar from '@/components/ProductSidebar';
 import MiniNavbar from '@/components/MiniNavbar';
+import ProductFilterBar from '@/components/ProductFilterBar';
+import { computeAvailableFilters, applyProductFilters } from '@/utils/productFilters';
 
 import Head from 'next/head';
 import { FaChevronDown } from 'react-icons/fa';
@@ -61,12 +63,32 @@ export default function CategoryPage({ category, products, categoryData }) {
   const [sortMode, setSortMode] = useState('default');
   const [subCategoryFilter, setSubCategoryFilter] = useState('');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  // Produk filters (hanya aktif saat sub kategori dipilih)
+  const [phaseFilter, setPhaseFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [kontaktorTypeFilter, setKontaktorTypeFilter] = useState('');
+  const [ampereFilter, setAmpereFilter] = useState('');
+  const [voltageFilter, setVoltageFilter] = useState('');
 
-  // Reset subcategory filter when category slug changes
+  // Reset semua filter saat kategori berubah
   useEffect(() => {
     setSubCategoryFilter('');
     setIsMobileSidebarOpen(false);
+    setPhaseFilter('');
+    setTypeFilter('');
+    setKontaktorTypeFilter('');
+    setAmpereFilter('');
+    setVoltageFilter('');
   }, [category]);
+
+  // Reset product filters saat sub kategori berubah
+  useEffect(() => {
+    setPhaseFilter('');
+    setTypeFilter('');
+    setKontaktorTypeFilter('');
+    setAmpereFilter('');
+    setVoltageFilter('');
+  }, [subCategoryFilter]);
 
   const readableCategory = category.replace(/-/g, ' ');
   const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://www.purodenka.com').replace(/\/$/, '');
@@ -87,14 +109,30 @@ export default function CategoryPage({ category, products, categoryData }) {
     } catch { return 0; }
   };
 
+  // Products filtered by subcategory
+  const subCatProducts = useMemo(() => {
+    if (!subCategoryFilter) return products;
+    return products.filter(p =>
+      (p.subCategorySlug || p.subCategory || '').toLowerCase() === subCategoryFilter.toLowerCase()
+    );
+  }, [products, subCategoryFilter]);
+
+  // Compute which product filters are available for the selected subcategory
+  const filterMeta = useMemo(() => {
+    if (!subCategoryFilter) return { hasPhase: false, isMCCB: false, isLC1D: false, availablePhases: [], availableTypes: [], availableKontaktorTypes: [], availableAmperes: [], availableVoltages: [] };
+    return computeAvailableFilters(subCatProducts);
+  }, [subCatProducts, subCategoryFilter]);
+
   // Sort and filter products client-side
   const sortedProducts = useMemo(() => {
-    let out = products.slice();
+    let out;
 
     if (subCategoryFilter) {
-      out = out.filter(p => (p.subCategorySlug || p.subCategory || '').toLowerCase() === subCategoryFilter.toLowerCase());
+      // Apply product-level filters (phase, type, ampere, voltage)
+      out = applyProductFilters(subCatProducts, { searchTerm: '', phaseFilter, typeFilter, kontaktorTypeFilter, ampereFilter, voltageFilter });
     } else {
       // Group by subcategory when no filter is applied
+      out = products.slice();
       const groups = {};
       out.forEach(p => {
         const subCat = (p.subCategorySlug || p.subCategory || 'lain-lain').toLowerCase();
@@ -149,7 +187,7 @@ export default function CategoryPage({ category, products, categoryData }) {
         break;
     }
     return out;
-  }, [products, sortMode, subCategoryFilter]);
+  }, [products, sortMode, subCategoryFilter, phaseFilter, typeFilter, kontaktorTypeFilter, ampereFilter, voltageFilter]);
 
   return (
     <>
@@ -267,13 +305,32 @@ export default function CategoryPage({ category, products, categoryData }) {
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-700 text-xs font-semibold rounded-full border border-red-100">
                   {subCategoryFilter.replace(/-/g, ' ')}
                   <button 
-                    onClick={() => setSubCategoryFilter('')}
+                    onClick={() => {
+                      setSubCategoryFilter('');
+                    }}
                     className="hover:text-red-900 font-bold ml-1 cursor-pointer focus:outline-none"
                   >
                     ×
                   </button>
                 </span>
               </div>
+            )}
+
+            {/* Product Filters (Phase, Type, Ampere, Voltage) — hanya muncul saat sub kategori dipilih */}
+            {subCategoryFilter && (
+              <ProductFilterBar
+                {...filterMeta}
+                phaseFilter={phaseFilter}
+                typeFilter={typeFilter}
+                kontaktorTypeFilter={kontaktorTypeFilter}
+                ampereFilter={ampereFilter}
+                voltageFilter={voltageFilter}
+                setPhaseFilter={setPhaseFilter}
+                setTypeFilter={setTypeFilter}
+                setKontaktorTypeFilter={setKontaktorTypeFilter}
+                setAmpereFilter={setAmpereFilter}
+                setVoltageFilter={setVoltageFilter}
+              />
             )}
 
             {sortedProducts.length === 0 ? (
