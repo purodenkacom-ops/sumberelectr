@@ -342,12 +342,11 @@ export async function getStaticProps({ params }) {
     ...serializeDoc(doc)
   }));
 
-  // Ambil 4 produk random untuk desktop, 2 untuk mobile (ProductSuggest handle slice)
-  // Kirim 4 produk ke ProductSuggest, nanti komponen akan slice sendiri
-  const products = getRandomProducts(allProducts, 4);
+  // Ambil 4 produk terbaru (deterministik, tanpa random agar hemat ISR writes)
+  const products = allProducts.slice(0, 4);
 
   return {
     props: { article, related, latest, trending, products },
-    revalidate: 60,
+    revalidate: 3600,
   };
 }

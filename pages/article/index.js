@@ -39,7 +39,7 @@ export async function getStaticProps() {
         articles: docs,
         categories,
       },
-      revalidate: 60,
+      revalidate: 3600,
     }
   } catch (err) {
     console.error('SSG fetch error:', err)
@@ -48,7 +48,7 @@ export async function getStaticProps() {
         articles: [],
         categories: [],
       },
-      revalidate: 60,
+      revalidate: 3600,
     }
   }
 }

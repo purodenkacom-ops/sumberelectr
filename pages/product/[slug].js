@@ -790,7 +790,7 @@ export async function getStaticProps({ params }) {
       .map(serializeProductDoc);
   }
 
-  // CROSS-SELL
+  // CROSS-SELL (deterministic — no Math.random to avoid unnecessary ISR writes)
   const needExtra = relatedProducts.length < 4;
   let crossProducts = [];
   if (needExtra) {
@@ -799,21 +799,12 @@ export async function getStaticProps({ params }) {
       .orderBy('createdAt', 'desc')
       .limit(20)
       .get();
-    const pool = extraSnap.docs
+    crossProducts = extraSnap.docs
       .filter((d) => d.id !== product.id && !relatedProducts.find((r) => r.id === d.id))
-      .map(serializeProductDoc);
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [pool[i], pool[j]] = [pool[j], pool[i]];
-    }
-    crossProducts = pool.slice(0, 10);
+      .map(serializeProductDoc)
+      .slice(0, 10);
   } else {
-    const pool = relatedProducts.slice();
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [pool[i], pool[j]] = [pool[j], pool[i]];
-    }
-    crossProducts = pool.slice(0, 5);
+    crossProducts = relatedProducts.slice(0, 5);
   }
 
   // Reviews
@@ -842,7 +833,7 @@ export async function getStaticProps({ params }) {
 
   return {
     props: { product, relatedProducts, crossProducts, subcategoryProducts, reviews },
-    revalidate: 60,
+    revalidate: 3600,
   };
 }
 
