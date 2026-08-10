@@ -69,17 +69,23 @@ export default function CategoryPage({ category, products, categoryData }) {
   const [kontaktorTypeFilter, setKontaktorTypeFilter] = useState('');
   const [ampereFilter, setAmpereFilter] = useState('');
   const [voltageFilter, setVoltageFilter] = useState('');
+  const [displayTypeFilter, setDisplayTypeFilter] = useState('');
 
   // Reset semua filter saat kategori berubah
   useEffect(() => {
-    setSubCategoryFilter('');
     setIsMobileSidebarOpen(false);
     setPhaseFilter('');
     setTypeFilter('');
     setKontaktorTypeFilter('');
     setAmpereFilter('');
     setVoltageFilter('');
-  }, [category]);
+    setDisplayTypeFilter('');
+
+    // Synchronize subCategoryFilter from URL query on load / category change
+    if (router.isReady) {
+      setSubCategoryFilter(router.query.sub || '');
+    }
+  }, [category, router.query.sub, router.isReady]);
 
   // Reset product filters saat sub kategori berubah
   useEffect(() => {
@@ -88,6 +94,7 @@ export default function CategoryPage({ category, products, categoryData }) {
     setKontaktorTypeFilter('');
     setAmpereFilter('');
     setVoltageFilter('');
+    setDisplayTypeFilter('');
   }, [subCategoryFilter]);
 
   const readableCategory = category.replace(/-/g, ' ');
@@ -119,7 +126,7 @@ export default function CategoryPage({ category, products, categoryData }) {
 
   // Compute which product filters are available for the selected subcategory
   const filterMeta = useMemo(() => {
-    if (!subCategoryFilter) return { hasPhase: false, isMCCB: false, isLC1D: false, availablePhases: [], availableTypes: [], availableKontaktorTypes: [], availableAmperes: [], availableVoltages: [] };
+    if (!subCategoryFilter) return { hasPhase: false, isMCCB: false, isLC1D: false, hasDisplayType: false, availablePhases: [], availableTypes: [], availableKontaktorTypes: [], availableAmperes: [], availableVoltages: [], availableDisplayTypes: [] };
     return computeAvailableFilters(subCatProducts);
   }, [subCatProducts, subCategoryFilter]);
 
@@ -128,8 +135,8 @@ export default function CategoryPage({ category, products, categoryData }) {
     let out;
 
     if (subCategoryFilter) {
-      // Apply product-level filters (phase, type, ampere, voltage)
-      out = applyProductFilters(subCatProducts, { searchTerm: '', phaseFilter, typeFilter, kontaktorTypeFilter, ampereFilter, voltageFilter });
+      // Apply product-level filters (phase, type, ampere, voltage, displayType)
+      out = applyProductFilters(subCatProducts, { searchTerm: '', phaseFilter, typeFilter, kontaktorTypeFilter, ampereFilter, voltageFilter, displayTypeFilter });
     } else {
       // Group by subcategory when no filter is applied
       out = products.slice();
@@ -187,7 +194,7 @@ export default function CategoryPage({ category, products, categoryData }) {
         break;
     }
     return out;
-  }, [products, sortMode, subCategoryFilter, phaseFilter, typeFilter, kontaktorTypeFilter, ampereFilter, voltageFilter]);
+  }, [products, sortMode, subCategoryFilter, phaseFilter, typeFilter, kontaktorTypeFilter, ampereFilter, voltageFilter, displayTypeFilter]);
 
   return (
     <>
@@ -229,11 +236,15 @@ export default function CategoryPage({ category, products, categoryData }) {
                   setSubCategoryFilter('');
                 }
               }}
-              onSubCategorySelect={(name, slug) => {
-                setSubCategoryFilter(slug || '');
+              onSubCategorySelect={(name, slug, parentSlug) => {
+                if (parentSlug && parentSlug !== category) {
+                  router.push(`/category/${parentSlug}?sub=${slug}`);
+                } else {
+                  router.push(`/category/${category}?sub=${slug}`, undefined, { shallow: true });
+                }
               }}
               onClearFilters={() => {
-                setSubCategoryFilter('');
+                router.push(`/category/${category}`, undefined, { shallow: true });
               }}
             />
           </div>
@@ -253,12 +264,16 @@ export default function CategoryPage({ category, products, categoryData }) {
               }
               setIsMobileSidebarOpen(false);
             }}
-            onSubCategorySelect={(name, slug) => {
-              setSubCategoryFilter(slug || '');
+            onSubCategorySelect={(name, slug, parentSlug) => {
+              if (parentSlug && parentSlug !== category) {
+                router.push(`/category/${parentSlug}?sub=${slug}`);
+              } else {
+                router.push(`/category/${category}?sub=${slug}`, undefined, { shallow: true });
+              }
               setIsMobileSidebarOpen(false);
             }}
             onClearFilters={() => {
-              setSubCategoryFilter('');
+              router.push(`/category/${category}`, undefined, { shallow: true });
               setIsMobileSidebarOpen(false);
             }}
           />
@@ -306,7 +321,7 @@ export default function CategoryPage({ category, products, categoryData }) {
                   {subCategoryFilter.replace(/-/g, ' ')}
                   <button 
                     onClick={() => {
-                      setSubCategoryFilter('');
+                      router.push(`/category/${category}`, undefined, { shallow: true });
                     }}
                     className="hover:text-red-900 font-bold ml-1 cursor-pointer focus:outline-none"
                   >
@@ -325,11 +340,13 @@ export default function CategoryPage({ category, products, categoryData }) {
                 kontaktorTypeFilter={kontaktorTypeFilter}
                 ampereFilter={ampereFilter}
                 voltageFilter={voltageFilter}
+                displayTypeFilter={displayTypeFilter}
                 setPhaseFilter={setPhaseFilter}
                 setTypeFilter={setTypeFilter}
                 setKontaktorTypeFilter={setKontaktorTypeFilter}
                 setAmpereFilter={setAmpereFilter}
                 setVoltageFilter={setVoltageFilter}
+                setDisplayTypeFilter={setDisplayTypeFilter}
               />
             )}
 

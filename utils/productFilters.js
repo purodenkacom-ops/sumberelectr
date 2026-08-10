@@ -12,6 +12,14 @@ export function detectIsKontaktorLC1D(products = []) {
   });
 }
 
+/** Detect if products should show Display Type filter (Analog / Digital) */
+export function detectHasDisplayType(products = []) {
+  return products.some(p => {
+    const name = (p.name || '').toLowerCase();
+    return name.includes('analog') || name.includes('digital');
+  });
+}
+
 export function detectHasPhaseFilter(products = []) {
   const isLC1D = detectIsKontaktorLC1D(products);
   return products.some(p => {
@@ -79,11 +87,21 @@ export function getVoltage(name) {
   return match ? match[1] : null;
 }
 
+/** Extract display type: "Analog" or "Digital" */
+export function getDisplayType(name) {
+  if (!name) return null;
+  const lower = name.toLowerCase();
+  if (lower.includes('analog')) return 'Analog';
+  if (lower.includes('digital')) return 'Digital';
+  return null;
+}
+
 /** Compute all available filter values from a list of products */
 export function computeAvailableFilters(products = []) {
   const isLC1D = detectIsKontaktorLC1D(products);
   const hasPhase = detectHasPhaseFilter(products);
   const isMCCB = detectIsMCCB(products);
+  const hasDisplayType = detectHasDisplayType(products);
 
   const availablePhases = hasPhase
     ? [...new Set(products.map(p => getPhase(p.name)).filter(Boolean))].sort()
@@ -106,11 +124,16 @@ export function computeAvailableFilters(products = []) {
     ? [...new Set(products.map(p => getVoltage(p.name)).filter(Boolean))].sort((a, b) => parseInt(a) - parseInt(b))
     : [];
 
+  const availableDisplayTypes = hasDisplayType
+    ? [...new Set(products.map(p => getDisplayType(p.name)).filter(Boolean))].sort()
+    : [];
+
   return {
-    hasPhase, isMCCB, isLC1D,
+    hasPhase, isMCCB, isLC1D, hasDisplayType,
     availablePhases, availableTypes,
     availableKontaktorTypes,
     availableAmperes, availableVoltages,
+    availableDisplayTypes
   };
 }
 
@@ -122,6 +145,7 @@ export function applyProductFilters(products = [], {
   kontaktorTypeFilter,
   ampereFilter,
   voltageFilter,
+  displayTypeFilter,
 }) {
   return products.filter(p => {
     const matchesSearch = !searchTerm ||
@@ -132,6 +156,7 @@ export function applyProductFilters(products = [], {
     const matchesKontaktorType = !kontaktorTypeFilter || getKontaktorType(p.name) === kontaktorTypeFilter;
     const matchesAmpere = !ampereFilter || getAmpere(p.name) === ampereFilter;
     const matchesVoltage = !voltageFilter || getVoltage(p.name) === voltageFilter;
-    return matchesSearch && matchesPhase && matchesType && matchesKontaktorType && matchesAmpere && matchesVoltage;
+    const matchesDisplayType = !displayTypeFilter || getDisplayType(p.name) === displayTypeFilter;
+    return matchesSearch && matchesPhase && matchesType && matchesKontaktorType && matchesAmpere && matchesVoltage && matchesDisplayType;
   });
 }

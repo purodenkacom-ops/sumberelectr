@@ -119,10 +119,10 @@ const ProductSidebar = ({
     }
   };
 
-  const handleSubClick = (subCat, e) => {
+  const handleSubClick = (subCat, parentSlug, e) => {
     e.preventDefault();
     if (onSubCategorySelect) {
-      onSubCategorySelect(subCat.name, subCat.slug);
+      onSubCategorySelect(subCat.name, subCat.slug, parentSlug);
     }
   };
 
@@ -251,7 +251,7 @@ const ProductSidebar = ({
                             <a
                               key={sub.id}
                               href="#"
-                              onClick={(e) => handleSubClick(sub, e)}
+                              onClick={(e) => handleSubClick(sub, cat.slug, e)}
                               className={`block px-3 py-2 rounded-lg text-xs transition-all duration-200 select-none cursor-pointer ${
                                 isSubSelected
                                   ? 'bg-red-100/50 text-red-700 font-bold shadow-sm'
@@ -362,7 +362,7 @@ const ProductSidebar = ({
                       <a
                         key={sub.id}
                         href="#"
-                        onClick={(e) => handleSubClick(sub, e)}
+                        onClick={(e) => handleSubClick(sub, cat.slug, e)}
                         className={`block px-3 py-1.5 rounded-lg text-xs transition-all duration-200 select-none cursor-pointer ${
                           isSubSelected
                             ? 'bg-red-100/50 text-red-700 font-semibold shadow-sm'

@@ -8,31 +8,35 @@ export default function ProductFilterBar({
   hasPhase = false,
   isMCCB = false,
   isLC1D = false,
+  hasDisplayType = false,
   // available options
   availablePhases = [],
   availableTypes = [],
   availableKontaktorTypes = [],
   availableAmperes = [],
   availableVoltages = [],
+  availableDisplayTypes = [],
   // active values
   phaseFilter,
   typeFilter,
   kontaktorTypeFilter,
   ampereFilter,
   voltageFilter,
+  displayTypeFilter,
   // setters
   setPhaseFilter,
   setTypeFilter,
   setKontaktorTypeFilter,
   setAmpereFilter,
   setVoltageFilter,
+  setDisplayTypeFilter,
 }) {
   const hasAnyFilter =
     (hasPhase && availablePhases.length >= 1) ||
     (isMCCB && availableTypes.length >= 1) ||
-    (isLC1D && availableKontaktorTypes.length >= 1) ||
     (isLC1D && availableAmperes.length >= 1) ||
-    (isLC1D && availableVoltages.length >= 1);
+    (isLC1D && availableVoltages.length >= 1) ||
+    (hasDisplayType && availableDisplayTypes.length >= 1);
 
   if (!hasAnyFilter) return null;
 
@@ -69,6 +73,36 @@ export default function ProductFilterBar({
         </div>
       )}
 
+      {/* Display Type Filter (Analog/Digital) */}
+      {hasDisplayType && availableDisplayTypes.length >= 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide w-16 shrink-0">Tipe:</span>
+          <button
+            onClick={() => setDisplayTypeFilter('')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
+              !displayTypeFilter
+                ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                : 'bg-white text-gray-600 border-gray-300 hover:border-amber-300 hover:text-amber-500'
+            }`}
+          >
+            Semua
+          </button>
+          {availableDisplayTypes.map(type => (
+            <button
+              key={type}
+              onClick={() => setDisplayTypeFilter(displayTypeFilter === type ? '' : type)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
+                displayTypeFilter === type
+                  ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                  : 'bg-white text-gray-600 border-gray-300 hover:border-amber-300 hover:text-amber-500'
+              }`}
+            >
+              {type}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Type Filter (MCCB) */}
       {isMCCB && availableTypes.length >= 1 && (
         <div className="flex flex-wrap items-center gap-2">
@@ -99,35 +133,6 @@ export default function ProductFilterBar({
         </div>
       )}
 
-      {/* Type Filter (Kontaktor LC1D): M=220V, E=48V, F=110V, Q=380V, etc. */}
-      {isLC1D && availableKontaktorTypes.length >= 1 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide w-16 shrink-0">Type:</span>
-          <button
-            onClick={() => setKontaktorTypeFilter('')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
-              !kontaktorTypeFilter
-                ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                : 'bg-white text-gray-600 border-gray-300 hover:border-blue-300 hover:text-blue-600'
-            }`}
-          >
-            Semua
-          </button>
-          {availableKontaktorTypes.map(type => (
-            <button
-              key={type}
-              onClick={() => setKontaktorTypeFilter(kontaktorTypeFilter === type ? '' : type)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
-                kontaktorTypeFilter === type
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                  : 'bg-white text-gray-600 border-gray-300 hover:border-blue-300 hover:text-blue-600'
-              }`}
-            >
-              Type {type}
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* Ampere Filter (Kontaktor LC1D) */}
       {isLC1D && availableAmperes.length >= 1 && (

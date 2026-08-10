@@ -271,6 +271,7 @@ export default function SubcategoryProductTable({ products, currentProductId }) 
   const [kontaktorTypeFilter, setKontaktorTypeFilter] = useState(''); // '', 'M', 'E', 'F', 'Q', etc.
   const [ampereFilter, setAmpereFilter] = useState(''); // '', '38A', '65A'
   const [voltageFilter, setVoltageFilter] = useState(''); // '', '220VAC', '48VAC'
+  const [displayTypeFilter, setDisplayTypeFilter] = useState(''); // '', 'Analog', 'Digital'
   const [cartItems, setCartItems] = useState([]);
   
   useEffect(() => {
@@ -295,11 +296,11 @@ export default function SubcategoryProductTable({ products, currentProductId }) 
   if (!products || products.length === 0) return null;
 
   // Compute which filters are available for this subcategory
-  const { hasPhase, isMCCB, isLC1D, availablePhases, availableTypes, availableKontaktorTypes, availableAmperes, availableVoltages } =
+  const { hasPhase, isMCCB, isLC1D, hasDisplayType, availablePhases, availableTypes, availableKontaktorTypes, availableAmperes, availableVoltages, availableDisplayTypes } =
     computeAvailableFilters(products);
 
   // Apply all active filters
-  const filtered = applyProductFilters(products, { searchTerm, phaseFilter, typeFilter, kontaktorTypeFilter, ampereFilter, voltageFilter });
+  const filtered = applyProductFilters(products, { searchTerm, phaseFilter, typeFilter, kontaktorTypeFilter, ampereFilter, voltageFilter, displayTypeFilter });
 
   const handleSearch = (e) => setSearchTerm(e.target.value);
 
@@ -315,21 +316,25 @@ export default function SubcategoryProductTable({ products, currentProductId }) 
         hasPhase={hasPhase}
         isMCCB={isMCCB}
         isLC1D={isLC1D}
+        hasDisplayType={hasDisplayType}
         availablePhases={availablePhases}
         availableTypes={availableTypes}
         availableKontaktorTypes={availableKontaktorTypes}
         availableAmperes={availableAmperes}
         availableVoltages={availableVoltages}
+        availableDisplayTypes={availableDisplayTypes}
         phaseFilter={phaseFilter}
         typeFilter={typeFilter}
         kontaktorTypeFilter={kontaktorTypeFilter}
         ampereFilter={ampereFilter}
         voltageFilter={voltageFilter}
+        displayTypeFilter={displayTypeFilter}
         setPhaseFilter={setPhaseFilter}
         setTypeFilter={setTypeFilter}
         setKontaktorTypeFilter={setKontaktorTypeFilter}
         setAmpereFilter={setAmpereFilter}
         setVoltageFilter={setVoltageFilter}
+        setDisplayTypeFilter={setDisplayTypeFilter}
       />
 
       {/* Header: info + search */}
