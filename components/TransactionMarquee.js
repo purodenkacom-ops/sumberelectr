@@ -84,45 +84,30 @@ export default function TransactionMarquee({ className = '' }) {
       }
     } catch {}
 
-    // Try server-backed daily data first
-    (async () => {
-      try {
-        const res = await fetch('/api/marquee/daily');
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data.items) && data.items.length) {
-            setItems(data.items);
-            try { localStorage.setItem(KEY, JSON.stringify(data.items)); } catch {}
-            return;
-          }
-        }
-      } catch {}
-
-      // Fallback: deterministic local generation based on todayKey
-      const rng = makeRng(todayKey);
-      const count = 14;
-      if (!NAME_POOL.length) { setItems([]); return; }
-      const pool = [...NAME_POOL];
-      for (let i = pool.length - 1; i > 0; i--) {
-        const j = Math.floor(rng() * (i + 1));
-        [pool[i], pool[j]] = [pool[j], pool[i]];
-      }
-      const take = Math.min(count, pool.length);
-      const out = [];
-      for (let i = 0; i < take; i++) {
-        const name = pool[i];
-        const amount = Math.floor(50000 + rng() * (500000 - 50000));
-        const h = 8 + Math.floor(rng() * 15);
-        const m = Math.floor(rng() * 60);
-        const d = new Date(yesterdayBase);
-        d.setHours(h, m, 0, 0);
-        const dateStr = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-        const timeStr = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
-        out.push({ id: i + 1, nameMasked: maskName(name), amount, date: dateStr, time: `${timeStr} WIB` });
-      }
-      setItems(out);
-      try { localStorage.setItem(KEY, JSON.stringify(out)); } catch {}
-    })();
+    // Generate deterministically on the client using seeded RNG (no API call needed)
+    const rng = makeRng(todayKey);
+    const count = 14;
+    if (!NAME_POOL.length) { setItems([]); return; }
+    const pool = [...NAME_POOL];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    const take = Math.min(count, pool.length);
+    const out = [];
+    for (let i = 0; i < take; i++) {
+      const name = pool[i];
+      const amount = Math.floor(50000 + rng() * (500000 - 50000));
+      const h = 8 + Math.floor(rng() * 15);
+      const m = Math.floor(rng() * 60);
+      const d = new Date(yesterdayBase);
+      d.setHours(h, m, 0, 0);
+      const dateStr = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+      const timeStr = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+      out.push({ id: i + 1, nameMasked: maskName(name), amount, date: dateStr, time: `${timeStr} WIB` });
+    }
+    setItems(out);
+    try { localStorage.setItem(KEY, JSON.stringify(out)); } catch {}
   }, [yesterdayBase, todayKey]);
 
   if (!items.length) return null;

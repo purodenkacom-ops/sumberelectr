@@ -370,7 +370,7 @@ export async function getStaticProps() {
 
     // Retrieve all products and pick randomly for Terlaris and Rekomendasi
     try {
-      const productsSnap = await adminDb.collection('products').get();
+      const productsSnap = await adminDb.collection('products').orderBy('createdAt', 'desc').limit(50).get();
       const lean = [];
       productsSnap.forEach(doc => {
         const d = doc.data() || {};
@@ -425,17 +425,14 @@ export async function getStaticProps() {
         return excludeKeywords.some(k => blob.includes(k));
       };
       let filtered = lean.filter(p => !isExcluded(p));
-      const shuffle = arr => arr.sort(() => Math.random() - 0.5);
+      // Deterministic sort by createdAt (no Math.random — avoids unnecessary ISR writes)
       filtered.sort((a, b) => b.createdAt - a.createdAt);
 
-      const newestFavorites = filtered.slice(0, 4);
-      const remainingFavoritesPool = filtered.slice(4);
-      favoriteFish = newestFavorites.concat(shuffle([...remainingFavoritesPool]).slice(0, 4));
+      // Terlaris: 8 produk terbaru (deterministik)
+      favoriteFish = filtered.slice(0, 8);
 
-      // Asumsi jika rekomendasi butuh data baru (bawahnya):
-      const newestRecommendations = remainingFavoritesPool.slice(0, 4);
-      const remainingRecPool = remainingFavoritesPool.slice(4);
-      recommendations = newestRecommendations.concat(shuffle([...remainingRecPool]).slice(0, 8));
+      // Rekomendasi: 12 produk berikutnya (deterministik)
+      recommendations = filtered.slice(8, 20);
     } catch (e) {
       console.error('Failed to load products for randomization', e);
     }
@@ -457,5 +454,5 @@ export async function getStaticProps() {
   } catch (e) {
     // fallback handled by component
   }
-  return { props: { ogImage, ogImages, favoriteFish, recommendations, bannerMeta, farmInfo, favoritesSchema, recommendationsSchema, articles }, revalidate: 300 };
+  return { props: { ogImage, ogImages, favoriteFish, recommendations, bannerMeta, farmInfo, favoritesSchema, recommendationsSchema, articles }, revalidate: 86400 };
 }

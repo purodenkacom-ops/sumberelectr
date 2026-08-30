@@ -735,7 +735,9 @@ const SingleProductPage = ({ product, relatedProducts, crossProducts, subcategor
 // SSG — Admin SDK (same as homepage) so Vercel build/ISR can read Firestore reliably
 export async function getStaticPaths() {
   try {
-    const snap = await adminDb.collection('products').get();
+    // Only pre-render 50 most recent products to reduce ISR writes at build time.
+    // The rest will be generated on-demand via fallback: 'blocking' and cached.
+    const snap = await adminDb.collection('products').orderBy('createdAt', 'desc').limit(50).get();
     const seen = new Set();
     const paths = [];
     snap.forEach((doc) => {
@@ -759,9 +761,9 @@ export async function getStaticProps({ params }) {
     productDoc = await findProductBySlug(adminDb, slug);
   } catch (e) {
     console.error('[getStaticProps] findProductBySlug:', e);
-    return { notFound: true };
+    return { notFound: true, revalidate: 86400 };
   }
-  if (!productDoc) return { notFound: true };
+  if (!productDoc) return { notFound: true, revalidate: 86400 };
 
   const product = serializeProductDoc(productDoc);
 
@@ -833,7 +835,7 @@ export async function getStaticProps({ params }) {
 
   return {
     props: { product, relatedProducts, crossProducts, subcategoryProducts, reviews },
-    revalidate: 3600,
+    revalidate: 86400,
   };
 }
 

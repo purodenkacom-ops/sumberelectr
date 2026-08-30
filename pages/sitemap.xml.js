@@ -116,8 +116,8 @@ export async function getServerSideProps({ req, res }) {
     const xml = buildXml(urls);
 
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
-    // Keep this fairly fresh so new products/articles appear quickly without rebuild.
-    res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+    // Cache sitemap for 7 days — products/articles change infrequently
+    res.setHeader('Cache-Control', 'public, s-maxage=604800, stale-while-revalidate=604800');
     res.write(xml);
     res.end();
   } catch (e) {

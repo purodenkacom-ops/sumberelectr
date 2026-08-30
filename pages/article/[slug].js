@@ -45,11 +45,7 @@ function serializeDoc(doc) {
   return result;
 }
 
-// Helper untuk ambil n produk acak dari array
-function getRandomProducts(arr, n) {
-  const shuffled = [...arr].sort(() => 0.5 - Math.random());
-  return shuffled.slice(0, n);
-}
+// getRandomProducts removed — deterministic query used instead to avoid ISR writes
 
 export default function ArticleDetail({ article, related, latest, trending, products }) {
   if (!article) {
@@ -284,10 +280,13 @@ export default function ArticleDetail({ article, related, latest, trending, prod
 }
 
 export async function getStaticPaths() {
-  const snapshot = await getDocs(collection(firestore, "articles"));
-  const paths = snapshot.docs.map((doc) => ({
-    params: { slug: doc.data().slug },
-  }));
+  // Only pre-render 20 most recent articles to reduce ISR writes at build time
+  const q = query(collection(firestore, "articles"), orderBy("createdAt", "desc"), limit(20));
+  const snapshot = await getDocs(q);
+  const paths = snapshot.docs
+    .map((doc) => doc.data().slug)
+    .filter(Boolean)
+    .map((slug) => ({ params: { slug } }));
 
   return { paths, fallback: "blocking" };
 }
@@ -298,7 +297,7 @@ export async function getStaticProps({ params }) {
   // Ambil artikel
   const q = query(collection(firestore, "articles"), where("slug", "==", slug));
   const snap = await getDocs(q);
-  if (snap.empty) return { notFound: true };
+  if (snap.empty) return { notFound: true, revalidate: 86400 };
   const article = serializeDoc(snap.docs[0]);
 
   // Related, latest, trending
@@ -336,17 +335,13 @@ export async function getStaticProps({ params }) {
     .map(serializeDoc)
     .filter((a) => a.slug !== slug);
 
-  // Ambil produk dari koleksi products
-  const productSnap = await getDocs(collection(firestore, "products"));
-  let allProducts = productSnap.docs.map((doc) => ({
-    ...serializeDoc(doc)
-  }));
-
-  // Ambil 4 produk terbaru (deterministik, tanpa random agar hemat ISR writes)
-  const products = allProducts.slice(0, 4);
+  // Ambil 4 produk terbaru (deterministik, menggunakan query limit agar hemat reads)
+  const productQuery = query(collection(firestore, "products"), orderBy("createdAt", "desc"), limit(4));
+  const productSnap = await getDocs(productQuery);
+  const products = productSnap.docs.map(serializeDoc);
 
   return {
     props: { article, related, latest, trending, products },
-    revalidate: 3600,
+    revalidate: 86400,
   };
 }

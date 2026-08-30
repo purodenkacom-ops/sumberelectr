@@ -2,8 +2,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/router';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { firestore } from '@/utils/firebase';
 import ProductCard from '@/components/ProductCard';
 import ProductSortBar from '@/components/ProductSortBar';
 import ProductSidebar from '@/components/ProductSidebar';
@@ -14,13 +12,30 @@ import { computeAvailableFilters, applyProductFilters } from '@/utils/productFil
 import Head from 'next/head';
 import { FaChevronDown } from 'react-icons/fa';
 
-export async function getServerSideProps(context) {
-  const { category } = context.params;
+export async function getStaticPaths() {
+  // Pre-render a small set of known categories; the rest are generated on-demand
+  try {
+    const { adminDb } = await import('@/utils/firebaseAdmin');
+    const catSnap = await adminDb.collection('categories').get();
+    const paths = [];
+    catSnap.forEach((doc) => {
+      const slug = doc.data().slug || doc.id;
+      if (slug) paths.push({ params: { category: slug } });
+    });
+    return { paths, fallback: 'blocking' };
+  } catch (e) {
+    console.error('[getStaticPaths] categories:', e);
+    return { paths: [], fallback: 'blocking' };
+  }
+}
+
+export async function getStaticProps({ params }) {
+  const { category } = params;
 
   try {
-    const q = query(collection(firestore, 'products'), where('categorySlug', '==', category));
-    const querySnapshot = await getDocs(q);
-    const products = querySnapshot.docs.map(doc => {
+    const { adminDb } = await import('@/utils/firebaseAdmin');
+    const snap = await adminDb.collection('products').where('categorySlug', '==', category).get();
+    const products = snap.docs.map(doc => {
       const data = doc.data();
       return {
         id: doc.id,
@@ -31,8 +46,7 @@ export async function getServerSideProps(context) {
     });
 
     let categoryData = null;
-    const catQuery = query(collection(firestore, 'categories'), where('slug', '==', category));
-    const catSnap = await getDocs(catQuery);
+    const catSnap = await adminDb.collection('categories').where('slug', '==', category).get();
     if (!catSnap.empty) {
       const cData = catSnap.docs[0].data();
       categoryData = {
@@ -46,14 +60,16 @@ export async function getServerSideProps(context) {
     return {
       props: {
         category,
-        products,
+        products: JSON.parse(JSON.stringify(products)),
         categoryData,
       },
+      revalidate: 86400,
     };
   } catch (error) {
     console.error('Error fetching category products:', error);
     return {
       notFound: true,
+      revalidate: 86400,
     };
   }
 }

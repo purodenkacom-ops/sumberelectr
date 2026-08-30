@@ -56,6 +56,7 @@ export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+  res.setHeader('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=3600');
   try {
     const names = Array.isArray(reviewsData?.names) ? reviewsData.names : [];
     if (!names.length) return res.status(200).json({ dateKey: null, items: [] });

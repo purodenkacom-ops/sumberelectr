@@ -21,7 +21,11 @@ if (!getApps().length) {
   }
 
   if (!projectId || !clientEmail || !privateKey) {
-    console.warn('[firebaseAdmin] Missing service account env vars');
+    console.warn('[firebaseAdmin] Missing service account env vars:', {
+      projectId: !!projectId,
+      clientEmail: !!clientEmail,
+      privateKey: !!privateKey
+    });
   }
 
   adminApp = initializeApp({
