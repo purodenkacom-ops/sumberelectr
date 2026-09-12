@@ -241,7 +241,7 @@ export default function CategoryPage({ category, products, categoryData }) {
       >
         <div className="lg:grid lg:grid-cols-[260px_1fr] lg:gap-8 items-start">
           {/* Sidebar (Desktop) */}
-          <div className="hidden lg:block">
+          <div className="hidden lg:block lg:sticky lg:top-20">
             <ProductSidebar
               currentCategorySlug={category}
               currentSubCategorySlug={subCategoryFilter}

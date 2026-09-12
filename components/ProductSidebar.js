@@ -294,7 +294,7 @@ const ProductSidebar = ({
 
   // --- DESKTOP SIDEBAR RENDER ---
   return (
-    <aside className="w-full bg-white border border-red-100 rounded-2xl p-5 shadow-sm sticky top-28 max-h-[calc(100vh-140px)] overflow-y-auto">
+    <aside className="w-full bg-white border border-red-100 rounded-2xl p-5 shadow-sm max-h-[calc(100vh-140px)] overflow-y-auto">
       <h2 className="text-base font-bold text-gray-800 mb-4 border-b border-gray-100 pb-3 flex items-center gap-2">
         <FaBorderAll className="text-red-600" size={16} />
         Brand

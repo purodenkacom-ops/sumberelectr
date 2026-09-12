@@ -206,9 +206,9 @@ const AllProductPage = () => {
             : "max-w-7xl mx-auto px-4 py-6 mt-4"
         }
       >
-        <div className="lg:grid lg:grid-cols-[260px_1fr] lg:gap-8 items-start">
+        <div className="lg:grid lg:grid-cols-[260px_1fr] lg:gap-8 lg:items-start">
           {/* Sidebar */}
-          <div className="hidden lg:block">
+          <div className="hidden lg:block lg:sticky lg:top-20">
             <ProductSidebar
               currentCategorySlug={activeCategorySlug}
               currentSubCategorySlug={activeSubCategorySlug}
