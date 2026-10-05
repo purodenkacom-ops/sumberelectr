@@ -94,6 +94,7 @@ export default function ProductListPage() {
   const fileInputRefs = [useRef(), useRef(), useRef()];
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
+  const [filterSubCategory, setFilterSubCategory] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [checkedIds, setCheckedIds] = useState([]);
@@ -165,16 +166,41 @@ export default function ProductListPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filterCategory]);
+  }, [search, filterCategory, filterSubCategory]);
+
+  useEffect(() => {
+    setFilterSubCategory('');
+  }, [filterCategory]);
 
   const fetchProducts = async () => {
     setLoading(true);
-    const { data } = await supabase.from('products').select('*').order('created_at', { ascending: false });
-    setProducts((data || []).map((product) => ({
-      ...product,
-      sku: product.sku || product.metadata?.sku || '',
-    })));
-    setLoading(false);
+    try {
+      const allProducts = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase
+          .from('products')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(from, from + 999);
+        if (error) throw error;
+        allProducts.push(...(data || []));
+        if (!data || data.length < 1000) break;
+      }
+      setProducts(allProducts.map((product) => ({
+        ...product,
+        categorySlug: product.category_slug,
+        subCategory: product.sub_category,
+        subCategorySlug: product.sub_category_slug,
+        priceRetail: product.price_retail,
+        priceWholesale: product.price_wholesale,
+        sku: product.sku || product.metadata?.sku || '',
+      })));
+    } catch (fetchError) {
+      console.error('Gagal mengambil semua produk:', fetchError);
+      setError('Gagal memuat seluruh produk.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Delete product and images from storage
@@ -521,20 +547,24 @@ export default function ProductListPage() {
   const filteredProducts = products.filter((p) => {
     // Filter kategori dengan slug agar konsisten
     const matchCategory = filterCategory
-      ? (p.categorySlug === getCategorySlug(filterCategory) || p.category === filterCategory || p.subCategorySlug === getCategorySlug(filterCategory) || p.subCategory === filterCategory)
+      ? (p.categorySlug === getCategorySlug(filterCategory) || p.category === filterCategory)
+      : true;
+    const matchSubCategory = filterSubCategory
+      ? (p.subCategorySlug === getCategorySlug(filterSubCategory) || p.subCategory === filterSubCategory)
       : true;
 
-    // Pencarian produk: nama dan kategori, case-insensitive
+    // Pencarian produk: nama, SKU, kategori, dan sub kategori, case-insensitive
     const searchTerm = search.trim().toLowerCase();
     const matchSearch =
       !searchTerm ||
       (p.name && p.name.toLowerCase().includes(searchTerm)) ||
+      (p.sku && String(p.sku).toLowerCase().includes(searchTerm)) ||
       (p.category && p.category.toLowerCase().includes(searchTerm)) ||
       (p.categorySlug && p.categorySlug.toLowerCase().includes(searchTerm)) ||
       (p.subCategory && p.subCategory.toLowerCase().includes(searchTerm)) ||
       (p.subCategorySlug && p.subCategorySlug.toLowerCase().includes(searchTerm));
 
-    return matchCategory && matchSearch;
+    return matchCategory && matchSubCategory && matchSearch;
   }).sort((a, b) => {
     // Urutkan berdasarkan kategori → sub kategori → nama produk (abjad)
     const catA = (a.category || '').toLowerCase();
@@ -566,17 +596,17 @@ export default function ProductListPage() {
   // Export Excel (menggunakan seluruh hasil filter, bukan hanya halaman saat ini)
   const handleDownloadExcel = () => {
     try {
-      const data = filteredProducts.map((product) => ({
+      const data = products.map((product) => ({
         'Product Name': product.name,
         'Category': product.category || '',
         'Sub Category': product.subCategory || '',
         'Long Description': product.description || '',
-        'short description': product.description?.slice(0, 140) || '',
-        Price: Number(product.priceRetail || product.priceWholesale || 0) || '',
+        'short description': product.metadata?.short_description || product.description?.slice(0, 140) || '',
+        Price: Number(product.priceRetail ?? product.price ?? 0),
         Currency: 'IDR',
         Stock: product.stock || 0,
-        SKU: product.sku || '',
-        'Package Weight': product.weight ? (Number(product.weight) / 1000) : '',
+        SKU: product.sku || product.metadata?.sku || '',
+        'Package Weight': product.weight ?? '',
         'Product Image 1': product.images?.[0] || '',
         'Product Image 2': product.images?.[1] || '',
         'Product Image 3': product.images?.[2] || ''
@@ -584,7 +614,7 @@ export default function ProductListPage() {
       const worksheet = XLSX.utils.json_to_sheet(data);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Produk');
-      XLSX.writeFile(workbook, 'produk-list.xlsx');
+      XLSX.writeFile(workbook, `backup-produk-${new Date().toISOString().slice(0, 10)}-${products.length}.xlsx`);
     } catch (err) {
       console.error('Gagal mengekspor Excel:', err);
       alert('Gagal mengunduh Excel. Lihat console untuk detail.');
@@ -915,51 +945,63 @@ export default function ProductListPage() {
     setBulkImporting(true);
     setBulkSuccessMessage('');
     try {
-      // Ambil mapping slug/sku -> id dari Supabase
-      const { data: existingProds, error: existingError } = await supabase.from('products').select('id,product_slug,metadata');
-      if (existingError) throw existingError;
-      const slugToId = {};
-      const skuToId = {};
-      (existingProds || []).forEach(p => {
-        if (p.product_slug) slugToId[p.product_slug] = p.id;
-        const sku = p.metadata?.sku;
-        if (sku) skuToId[String(sku).trim()] = p.id;
-      });
+      const normalizeName = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const stableProductId = (name) => {
+        let hash = 2166136261;
+        for (const char of normalizeName(name)) {
+          hash ^= char.charCodeAt(0);
+          hash = Math.imul(hash, 16777619);
+        }
+        return `excel-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+      };
+      const nameToProduct = new Map(products.map((product) => [normalizeName(product.name), product]));
 
-      // Supabase upsert (chunked 100)
+      // Supabase upsert (chunked 100), identitas berdasarkan nama produk ternormalisasi.
+      // SKU tidak menjadi identity karena satu SKU dapat dipakai beberapa varian.
       const chunkSize = 100;
       let importedIds = [];
       for (let i = 0; i < bulkProductsReady.length; i += chunkSize) {
         const slice = bulkProductsReady.slice(i, i + chunkSize);
-        const rows = slice.map(prod => {
+        const rows = slice.map((prod) => {
           const sku = prod.sku ? String(prod.sku).trim() : '';
-          const existId = (sku && skuToId[sku]) || (prod.productSlug && slugToId[prod.productSlug]) || null;
+          const existing = nameToProduct.get(normalizeName(prod.name));
+          const price = Number(prod.priceRetail ?? prod.price ?? 0);
           return {
-            ...(existId ? { id: existId } : {}),
+            id: existing?.id || stableProductId(prod.name),
             name: prod.name,
+            slug: prod.productSlug || null,
+            product_slug: prod.productSlug || null,
+            permalink: prod.productSlug || null,
             category: prod.category || null,
+            category_id: prod.categoryId || null,
             category_slug: prod.categorySlug || null,
             sub_category: prod.subCategory || null,
             sub_category_slug: prod.subCategorySlug || null,
-            price: prod.price || null,
-            price_retail: prod.priceRetail || prod.price || null,
-            price_wholesale: prod.priceWholesale || null,
-            stock: prod.stock || 0,
-            weight: prod.weight || null,
-            description: prod.description || null,
+            price,
+            price_retail: price,
+            price_wholesale: Number(prod.priceWholesale ?? price),
+            stock: Number(prod.stock || 0),
+            weight: prod.weight == null ? existing?.weight ?? 0 : Number(prod.weight),
+            description: prod.description || '',
+            image: prod.images?.[0] || null,
             images: prod.images || [],
             metadata: {
+              ...(existing?.metadata || {}),
               sku: sku || null,
               video: prod.video || null,
             },
-            product_slug: prod.productSlug || null,
+            created_at: existing?.created_at || new Date().toISOString(),
             updated_at: new Date().toISOString(),
           };
         });
-        const { data: upserted } = await supabase.from('products').upsert(rows, { onConflict: 'id' }).select('id');
-        importedIds = importedIds.concat((upserted || []).map(r => r.id));
+        const { data: upserted, error: upsertError } = await supabase
+          .from('products')
+          .upsert(rows, { onConflict: 'id' })
+          .select('id');
+        if (upsertError) throw upsertError;
+        importedIds = importedIds.concat((upserted || []).map((row) => row.id));
       }
-      setBulkSuccessMessage(`${bulkProductsReady.length} produk berhasil diimport.`);
+      setBulkSuccessMessage(`${importedIds.length} produk berhasil diimport tanpa membuat duplikat nama.`);
       fetchProducts();
       setBulkProductsReady([]);
     } catch (err) {
@@ -1243,12 +1285,12 @@ export default function ProductListPage() {
           </form>
 
           {/* Filter & Search */}
-          <div className="flex flex-col md:flex-row gap-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cari produk..."
+              placeholder="Cari nama produk atau SKU..."
               className="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
             />
             <select
@@ -1258,9 +1300,22 @@ export default function ProductListPage() {
               disabled={categoriesLoading}
             >
               <option value="">{categoriesLoading ? 'Memuat...' : 'Semua Kategori'}</option>
-              {categoryDocs.map(cat => (
+              {categoryDocs.filter((cat) => !cat.parentId).map((cat) => (
                 <option key={cat.id} value={cat.name}>{cat.name}</option>
               ))}
+            </select>
+            <select
+              value={filterSubCategory}
+              onChange={(e) => setFilterSubCategory(e.target.value)}
+              className="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60"
+              disabled={categoriesLoading || !filterCategory}
+            >
+              <option value="">{filterCategory ? 'Semua Sub Kategori' : 'Pilih kategori dahulu'}</option>
+              {categoryDocs
+                .filter((cat) => cat.parentId === categoryDocs.find((parent) => !parent.parentId && parent.name === filterCategory)?.id)
+                .map((cat) => (
+                  <option key={cat.id} value={cat.name}>{cat.name}</option>
+                ))}
             </select>
           </div>
 
