@@ -2,10 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import PDFDocument from 'pdfkit';
 import bwipjs from 'bwip-js';
-import stream from 'stream';
 import fetch from 'node-fetch';
-import { adminDb } from '@/utils/firebaseAdmin';
-import { getStorage } from 'firebase-admin/storage';
+import { supabaseAdmin } from '@/utils/supabaseAdmin';
 
 function formatRupiah(number) {
   return new Intl.NumberFormat('id-ID', {
@@ -15,9 +13,27 @@ function formatRupiah(number) {
   }).format(number || 0);
 }
 
-const db = adminDb;
-const storageBucketName = process.env.FIREBASE_STORAGE_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || null;
-const bucket = storageBucketName ? getStorage().bucket(storageBucketName) : getStorage().bucket();
+const LABEL_BUCKET = 'shipping-labels';
+const LABEL_FOLDER = 'labels';
+
+async function uploadLabelToStorage(buffer, fileName) {
+  const filePath = `${LABEL_FOLDER}/${fileName}`;
+  const { data, error } = await supabaseAdmin.storage
+    .from(LABEL_BUCKET)
+    .upload(filePath, buffer, {
+      contentType: 'application/pdf',
+      upsert: true,
+    });
+
+  if (error) throw error;
+
+  // Get public URL
+  const { data: urlData } = supabaseAdmin.storage
+    .from(LABEL_BUCKET)
+    .getPublicUrl(filePath);
+
+  return urlData.publicUrl;
+}
 
 export default async function handler(req, res) {
   try {
@@ -26,60 +42,56 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'deliveryId atau invoiceId diperlukan' });
     }
 
-    // Ambil dokumen order/invoice
-    let docSnap;
-    let docData;
-    let collectionName;
-    if (deliveryId) {
-      collectionName = 'orders';
-      docSnap = await db.collection('orders').doc(deliveryId).get();
-      if (!docSnap.exists) return res.status(404).json({ error: 'Order tidak ditemukan' });
-      docData = docSnap.data();
-    } else {
-      collectionName = 'invoices';
-      docSnap = await db.collection('invoices').doc(invoiceId).get();
-      if (!docSnap.exists) return res.status(404).json({ error: 'Invoice tidak ditemukan' });
-      docData = docSnap.data();
+    // Ambil invoice dari Supabase
+    const targetId = deliveryId || invoiceId;
+    const { data: docData, error: docError } = await supabaseAdmin
+      .from('invoices')
+      .select('*')
+      .eq('id', String(targetId))
+      .maybeSingle();
+
+    if (docError || !docData) {
+      return res.status(404).json({ error: 'Invoice tidak ditemukan di Supabase' });
     }
 
-    // Tentukan biteship order id field sesuai data
-    const biteshipOrderId = docData.delivery_id || docData.biteshipOrderId || docData.codOrderId || docData.deliveryId;
+    // Tentukan biteship order id
+    const biteshipOrderId = docData.biteship?.id || docData.biteship?.order_id || docData.delivery_id || docData.biteshipOrderId || docData.codOrderId;
     if (!biteshipOrderId) {
-      return res.status(422).json({ error: 'Biteship order id (delivery_id / biteshipOrderId / codOrderId) tidak ditemukan' });
+      return res.status(422).json({ error: 'Biteship order id tidak ditemukan di invoice' });
     }
 
-    // Cek file di storage
-    const file = bucket.file(`labels/label-${biteshipOrderId}.pdf`);
-    try {
-      const [exists] = await file.exists();
-      if (exists) {
-        const [url] = await file.getSignedUrl({
-          action: 'read',
-          // Perpanjang masa berlaku signed URL menjadi 24 jam
-          expires: Date.now() + 24 * 60 * 60 * 1000
-        });
-        // Update dokumen agar labelGeneratedAt diperbarui setiap refresh URL
-        try {
-          await db.collection(collectionName).doc(deliveryId || invoiceId).update({
-            labelUrl: url,
-            labelGeneratedAt: new Date(),
-            updatedAt: new Date()
-          });
-        } catch (e) {
-          console.warn('Tidak bisa update doc saat refresh label URL:', e.message);
-        }
-        return res.status(200).json({ label_url: url });
-      }
-    } catch (e) {
-      console.warn('Cek file di storage gagal, lanjut generate:', e.message);
+    // Cek apakah label sudah pernah dibuat (cek di Supabase Storage)
+    const fileName = `label-${biteshipOrderId}.pdf`;
+    const filePath = `${LABEL_FOLDER}/${fileName}`;
+    
+    const { data: existingFile } = await supabaseAdmin.storage
+      .from(LABEL_BUCKET)
+      .list(LABEL_FOLDER, {
+        search: fileName,
+      });
+
+    if (existingFile && existingFile.length > 0) {
+      const { data: urlData } = supabaseAdmin.storage
+        .from(LABEL_BUCKET)
+        .getPublicUrl(filePath);
+
+      // Update invoice dengan labelUrl
+      await supabaseAdmin.from('invoices').update({
+        label_url: urlData.publicUrl,
+        label_generated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }).eq('id', String(targetId));
+
+      return res.status(200).json({ label_url: urlData.publicUrl });
     }
 
     // Ambil data Biteship
     let biteshipOrder;
     try {
+      const apiKey = process.env.BITESHIP_API_KEY || process.env.NEXT_PUBLIC_BITESHIP_API_KEY;
       const r = await fetch(`https://api.biteship.com/v1/orders/${biteshipOrderId}`, {
         headers: {
-          Authorization: `Bearer ${process.env.BITESHIP_API_KEY}`,
+          Authorization: `Bearer ***}`,
           'Content-Type': 'application/json'
         }
       });
@@ -93,7 +105,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Gagal ambil data Biteship' });
     }
 
-    // Paths logo + watermark (jika ada)
+    // Paths logo + watermark
     const courier = (biteshipOrder.courier?.company || '').toLowerCase();
     const logoMap = {
       tiki: path.resolve('./public/logos/tiki.png'),
@@ -120,14 +132,12 @@ export default async function handler(req, res) {
       bwipjs.toBuffer({ bcid: 'code128', text: refNumber, scale: 1.2, height: 18, includetext: false })
     ]);
 
-    // Generate PDF
+    // Generate PDF ke buffer (bukan file)
+    const chunks = [];
     const doc = new PDFDocument({ size: [288, 432], margin: 8 });
-    const passthroughStream = new stream.PassThrough();
-    const uploadStream = file.createWriteStream({ metadata: { contentType: 'application/pdf' } });
-
-    doc.pipe(passthroughStream);
-    passthroughStream.pipe(uploadStream);
-
+    
+    doc.on('data', chunk => chunks.push(chunk));
+    
     // Watermark
     if (fs.existsSync(watermarkPath)) {
       doc.image(watermarkPath, 44, 120, { width: 200, opacity: 0.07 });
@@ -148,13 +158,13 @@ export default async function handler(req, res) {
     doc.fontSize(12).font('Helvetica-Bold').text(`Nomor Resi: ${waybill}`, 8, y + 2, { align: 'center', width: 272 });
     y += 24;
 
-    const ongkir = biteshipOrder.courier?.shipment_fee || docData.shippingCost || 0;
+    const ongkir = biteshipOrder.courier?.shipment_fee || docData.shipping_cost || 0;
     doc.fontSize(11).font('Helvetica').text(`Ongkos Kirim: ${formatRupiah(ongkir)}`, 8, y, { width: 272, align: 'center' });
     y += 22;
 
-  const courierBrand = (biteshipOrder.courier?.company || '').toUpperCase();
-  const serviceType = (biteshipOrder.courier?.type || '').toUpperCase();
-  doc.fontSize(11).font('Helvetica-Bold').text(`Jenis Layanan - ${courierBrand} ${serviceType}`.trim(), 8, y, { align: 'center', width: 272 });
+    const courierBrand = (biteshipOrder.courier?.company || '').toUpperCase();
+    const serviceType = (biteshipOrder.courier?.type || '').toUpperCase();
+    doc.fontSize(11).font('Helvetica-Bold').text(`Jenis Layanan - ${courierBrand} ${serviceType}`.trim(), 8, y, { align: 'center', width: 272 });
     y += 25;
 
     doc.moveTo(8, y).lineTo(280, y).stroke();
@@ -182,8 +192,8 @@ export default async function handler(req, res) {
     doc.rect(8, y, 136, 60).stroke();
     doc.rect(144, y, 136, 60).stroke();
 
-  const buyer = biteshipOrder.destination || {};
-  const invoiceDestAddress = (docData && docData.destination && docData.destination.address) || docData?.destination_address || null;
+    const buyer = biteshipOrder.destination || {};
+    const invoiceDestAddress = docData.shipping_address?.address || null;
     doc.fontSize(9).font('Helvetica-Bold').text('Alamat Penerima:', 12, y + 5);
     doc.font('Helvetica').fontSize(9).text(buyer.contact_name || '-', 12, y + 20);
     doc.text(buyer.contact_phone || '-', 12, y + 32);
@@ -223,37 +233,23 @@ export default async function handler(req, res) {
     doc.moveTo(8, y).lineTo(280, y).stroke();
     doc.end();
 
-    // Tunggu upload selesai
-    await new Promise((resolve, reject) => {
-      uploadStream.on('finish', resolve);
-      uploadStream.on('error', reject);
+    // Tunggu PDF selesai
+    const pdfBuffer = await new Promise((resolve, reject) => {
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
     });
 
-    // Signed URL
-    let url;
-    try {
-      [url] = await file.getSignedUrl({
-        action: 'read',
-        // 24 jam masa berlaku
-        expires: Date.now() + 24 * 60 * 60 * 1000,
-      });
-    } catch (signedUrlErr) {
-      console.error('Error mendapatkan signed URL:', signedUrlErr);
-      return res.status(500).json({ error: 'Gagal generate URL label' });
-    }
+    // Upload ke Supabase Storage
+    const labelUrl = await uploadLabelToStorage(pdfBuffer, fileName);
 
-    // Optional: simpan labelUrl ke dokumen
-    try {
-      await db.collection(collectionName).doc(deliveryId || invoiceId).update({
-        labelUrl: url,
-        labelGeneratedAt: new Date(),
-        updatedAt: new Date(),
-      });
-    } catch (e) {
-      console.warn('Tidak dapat update doc dengan labelUrl:', e.message);
-    }
+    // Update invoice dengan labelUrl
+    await supabaseAdmin.from('invoices').update({
+      label_url: labelUrl,
+      label_generated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }).eq('id', String(targetId));
 
-    return res.status(200).json({ label_url: url });
+    return res.status(200).json({ label_url: labelUrl });
   } catch (err) {
     console.error('Unexpected Error:', err);
     return res.status(500).json({ error: 'Terjadi kesalahan internal' });

@@ -1,8 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
-import { serverTimestamp, setDoc, doc } from 'firebase/firestore';
-import { auth, firestore } from '@/utils/firebase';
-import { signInAnonymously } from 'firebase/auth';
 import { loadGuestCart, removeGuestItem } from '@/utils/guestCart';
 import AreaSelect from '@/components/AreaSelect';
 import { generateInvoiceId } from '@/utils/invoice';
@@ -110,17 +107,7 @@ export default function GuestCheckout() {
 
     try {
       setSaving(true);
-      // Ensure an anonymous user exists so we can bind invoice.buyerId to a UID
-      try {
-        if (!auth.currentUser) {
-          await signInAnonymously(auth);
-        }
-      } catch (e) {
-        // proceed without UID if anonymous sign-in fails; server will set buyerId null
-        console.warn('Anonymous sign-in failed (continuing as pure guest):', e?.message || e);
-      }
-      const guestUid = auth.currentUser?.uid || null;
-      // Ensure a stable guestSessionId for future merge (localStorage)
+      // generate stable guestSessionId
       let guestSessionId = null;
       try {
         if (typeof window !== 'undefined') {
@@ -133,7 +120,7 @@ export default function GuestCheckout() {
           }
         }
       } catch (_) {}
-      // Create invoice via server API (uses firebase-admin), avoids client permission issues
+      // Create invoice via server API
       const resp = await fetch('/api/invoices/create-guest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -145,7 +132,7 @@ export default function GuestCheckout() {
           shippingAddress,
           items: mappedItems,
           gateway: 'xendit',
-          guestUid,
+          guestUid: null,
           guestSessionId,
         })
       });

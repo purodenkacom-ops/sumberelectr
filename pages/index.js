@@ -8,11 +8,10 @@ import BannerCarousel from '@/components/BannerCarousel';
 import FavoriteFishSection from '@/components/FavoriteFishSection';
 import PopupCart from '@/components/PopupCart';
 import VisitOurFarm from '@/components/VisitOurFarm';
-import { adminDb } from '@/utils/firebaseAdmin';
+import { supabaseAdmin } from '@/utils/supabaseAdmin';
 import AdsImage from '@/components/adsimage';
 import Recomend from '@/components/Recomend';
 import HomeArticles from '@/components/HomeArticles';
-// TransactionMarquee import removed (unused currently)
 
 const siteUrlBase = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.purodenka.com';
 const siteUrl = siteUrlBase.endsWith('/') ? siteUrlBase : `${siteUrlBase}/`;
@@ -329,35 +328,41 @@ export async function getStaticProps() {
   };
   try {
     const now = Date.now();
-    const snap = await adminDb.collection('banners').get();
+    
+    // Ambil banners dari Supabase
+    const { data: bannerRows } = await supabaseAdmin
+      .from('banners')
+      .select('*')
+      .order('priority', { ascending: false });
+
     const raw = [];
-    snap.forEach(doc => {
-      const data = doc.data() || {};
-      const start = data.startDate ? Date.parse(data.startDate) : null;
-      const end = data.endDate ? Date.parse(data.endDate) : null;
+    (bannerRows || []).forEach(b => {
+      const start = b.start_date ? Date.parse(b.start_date) : null;
+      const end = b.end_date ? Date.parse(b.end_date) : null;
       const active = (!start || start <= now) && (!end || end >= now);
       if (!active) return;
-      const priority = typeof data.priority === 'number' ? data.priority : 0;
-      const width = Number(data.width) || 1200;
-      const height = Number(data.height) || 630;
-      const alts = Array.isArray(data.alts) ? data.alts : [];
-      if (Array.isArray(data.images)) {
-        data.images.forEach((u, idx) => {
-              if (typeof u === 'string' && u.trim()) {
+      const priority = typeof b.priority === 'number' ? b.priority : 0;
+      const width = Number(b.width) || 1200;
+      const height = Number(b.height) || 630;
+      const alts = Array.isArray(b.alts) ? b.alts : [];
+      if (Array.isArray(b.images)) {
+        b.images.forEach((u, idx) => {
+          if (typeof u === 'string' && u.trim()) {
             raw.push({
               url: u.trim(),
-                  alt: alts[idx] || 'Homepage Banner Purodenka',
+              alt: alts[idx] || 'Homepage Banner Purodenka',
               width,
               height,
               priority,
               order: idx,
-              createdAt: data.createdAt?.toMillis?.() || 0
+              createdAt: b.created_at ? Date.parse(b.created_at) : 0
             });
           }
         });
       }
     });
-    raw.sort((a,b) => (b.priority - a.priority) || (b.createdAt - a.createdAt) || (a.order - b.order));
+
+    raw.sort((a, b) => (b.priority - a.priority) || (b.createdAt - a.createdAt) || (a.order - b.order));
     const seen = new Set();
     for (const r of raw) {
       if (bannerMeta.length >= 4) break;
@@ -368,53 +373,66 @@ export async function getStaticProps() {
     }
     ogImage = bannerMeta[0]?.url || null;
 
-    // Retrieve all products and pick randomly for Terlaris and Rekomendasi
+    // Ambil produk dari Supabase
     try {
-      const productsSnap = await adminDb.collection('products').orderBy('createdAt', 'desc').limit(50).get();
-      const lean = [];
-      productsSnap.forEach(doc => {
-        const d = doc.data() || {};
-        const firstImage = Array.isArray(d.images) ? d.images.find(i => typeof i === 'string' && i.trim()) : (typeof d.image === 'string' ? d.image : null);
+      const { data: productRows } = await supabaseAdmin
+        .from('products')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      const lean = (productRows || []).map(d => {
+        const firstImage = Array.isArray(d.images) 
+          ? d.images.find(i => typeof i === 'string' && i.trim()) 
+          : (typeof d.image === 'string' ? d.image : null);
+        
         let sizeVariants = [];
-        if (Array.isArray(d.sizeVariants) && d.sizeVariants.length) {
-          sizeVariants = d.sizeVariants.map(v => ({
+        if (Array.isArray(d.size_variants) && d.size_variants.length) {
+          sizeVariants = d.size_variants.map(v => ({
             size: v.size ?? null,
-            priceRetail: v.priceRetail ?? v.price_retail ?? null,
-            priceWholesale: v.priceWholesale ?? v.price_wholesale ?? null,
+            priceRetail: v.price_retail ?? null,
+            priceWholesale: v.price_wholesale ?? null,
             weight: v.weight != null ? Number(v.weight) : null
           })).filter(v => v.priceRetail != null || v.priceWholesale != null);
         } else {
-          const retail = d.priceRetail ?? d.price_retail ?? null;
-          const wholesale = d.priceWholesale ?? d.price_wholesale ?? null;
+          const retail = d.price_retail ?? d.price ?? null;
+          const wholesale = d.price_wholesale ?? null;
           if (retail != null || wholesale != null) {
-            sizeVariants = [{ size: null, priceRetail: retail ?? null, priceWholesale: wholesale ?? null, weight: d.weight != null ? Number(d.weight) : null }];
+            sizeVariants = [{ 
+              size: null, 
+              priceRetail: retail ?? null, 
+              priceWholesale: wholesale ?? null, 
+              weight: d.weight != null ? Number(d.weight) : null 
+            }];
           }
         }
-        lean.push({
-          id: doc.id,
+
+        return {
+          id: d.id,
           name: d.name || '',
-          productSlug: d.productSlug || d.slug || (d.name ? d.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') : doc.id),
-          slug: d.slug || d.productSlug || null,
-          category: d.category || d.categoryName || '',
-          categorySlug: d.categorySlug || (d.category ? d.category.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') : ''),
-          subCategory: d.subCategory || null,
-          subCategorySlug: d.subCategorySlug || null,
+          productSlug: d.product_slug || d.slug || (d.name ? d.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') : d.id),
+          slug: d.slug || d.product_slug || null,
+          category: d.category || '',
+          categorySlug: d.category_slug || (d.category ? d.category.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') : ''),
+          subCategory: d.sub_category || null,
+          subCategorySlug: d.sub_category_slug || null,
           image: firstImage || null,
           images: firstImage ? [firstImage] : [],
           sizeVariants,
-          price: d.price ?? d.priceRetail ?? d.price_retail ?? 0,
-          priceRetail: d.priceRetail ?? d.price_retail ?? d.price ?? 0,
-          priceWholesale: d.priceWholesale ?? d.price_wholesale ?? null,
+          price: d.price ?? d.price_retail ?? 0,
+          priceRetail: d.price_retail ?? d.price ?? 0,
+          priceWholesale: d.price_wholesale ?? null,
           discount: d.discount || 0,
           rating: d.rating || null,
-          sold: d.sold || d.salesCount || 0,
-          minWholesale: d.minWholesale || d.min_wholesale || d.min_wholesale_qty || null,
+          sold: d.sold || d.sales_count || 0,
+          minWholesale: d.min_wholesale || d.min_wholesale_qty || null,
           weight: d.weight != null ? Number(d.weight) : null,
           video: d.video || null,
-          createdAt: d.createdAt?.toMillis?.() || Date.parse(d.createdAt) || 0
-        });
+          createdAt: d.created_at ? Date.parse(d.created_at) : 0
+        };
       });
-      // Exclude aquarium/fish categories and keywords
+
+      // Exclude aquarium/fish categories
       const excludeKeywords = [
         'akuarium','aquarium','aquascape','ikan','fish','koi','guppy','cupang','manfish','cichlid','platy','udang','shrimp','pakan','tank','substrat','aerator','filter kolam','heater aquarium','filter aquarium','pompa udara','hias air'
       ];
@@ -424,35 +442,40 @@ export async function getStaticProps() {
           .join(' ')?.toLowerCase() || '';
         return excludeKeywords.some(k => blob.includes(k));
       };
+
       let filtered = lean.filter(p => !isExcluded(p));
-      // Deterministic sort by createdAt (no Math.random — avoids unnecessary ISR writes)
       filtered.sort((a, b) => b.createdAt - a.createdAt);
 
-      // Terlaris: 8 produk terbaru (deterministik)
       favoriteFish = filtered.slice(0, 8);
-
-      // Rekomendasi: 12 produk berikutnya (deterministik)
       recommendations = filtered.slice(8, 20);
     } catch (e) {
-      console.error('Failed to load products for randomization', e);
+      console.error('Failed to load products', e);
     }
 
-    const articleSnap = await adminDb.collection('articles').orderBy('createdAt', 'desc').limit(4).get();
-    articleSnap.forEach(doc => {
-      const data = doc.data() || {};
-      articles.push({
-        id: doc.id,
-        slug: data.slug || doc.id,
-        title: data.title || '',
-        excerpt: data.excerpt || '',
-        image: data.image || '',
-        category: data.category || '',
-        author: data.author || '',
-        date: data.date || data.createdAt || null,
-      });
-    });
+    // Ambil artikel dari Supabase
+    try {
+      const { data: articleRows } = await supabaseAdmin
+        .from('articles')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(4);
+
+      articles = (articleRows || []).map(d => ({
+        id: d.id,
+        slug: d.slug || d.id,
+        title: d.title || '',
+        excerpt: d.excerpt || '',
+        image: d.image || '',
+        category: d.category || '',
+        author: d.author || '',
+        date: d.date || d.created_at || null,
+      }));
+    } catch (e) {
+      console.error('Failed to load articles', e);
+    }
+
   } catch (e) {
-    // fallback handled by component
+    console.error('getStaticProps error:', e);
   }
   return { props: { ogImage, ogImages, favoriteFish, recommendations, bannerMeta, farmInfo, favoritesSchema, recommendationsSchema, articles }, revalidate: 86400 };
 }

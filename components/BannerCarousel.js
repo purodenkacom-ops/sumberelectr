@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { db } from "@/utils/firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { supabase } from "@/utils/supabase";
 import Image from "next/image";
 
 const BannerCarousel = () => {
@@ -11,13 +10,12 @@ const BannerCarousel = () => {
   useEffect(() => {
     const fetchBanners = async () => {
       try {
-        const querySnapshot = await getDocs(collection(db, "banners"));
+        const { data, error } = await supabase.from('banners').select('*');
+        if (error) throw error;
         const imgArr = [];
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          if (data.images && Array.isArray(data.images)) {
-            // Filter out empty or invalid image strings before setting state
-            const valid = data.images.filter((img) => typeof img === "string" && img.trim().length > 0);
+        (data || []).forEach((row) => {
+          if (row.images && Array.isArray(row.images)) {
+            const valid = row.images.filter((img) => typeof img === "string" && img.trim().length > 0);
             imgArr.push(...valid);
           }
         });

@@ -1,5 +1,5 @@
 import midtransClient from 'midtrans-client';
-import { adminDb } from '@/utils/firebaseAdmin';
+import { supabaseAdmin } from '@/utils/supabaseAdmin';
 
 export default async function handler(req, res) {
   try {
@@ -13,17 +13,18 @@ export default async function handler(req, res) {
 
     const snap = new midtransClient.Snap({ isProduction, serverKey });
 
-    // Fetch invoice
-    const invSnap = await adminDb.collection('invoices').doc(String(invoiceId)).get();
-    if (!invSnap.exists) return res.status(404).json({ error: 'Invoice not found' });
-    const inv = invSnap.data();
+    const { data: inv, error: invError } = await supabaseAdmin
+      .from('invoices')
+      .select('*')
+      .eq('id', String(invoiceId))
+      .maybeSingle();
 
-    // Build item_details and compute sum for Midtrans
+    if (invError || !inv) return res.status(404).json({ error: 'Invoice not found' });
 
     const items = Array.isArray(inv.items) ? inv.items : [];
     const sanitizeName = (n) => {
       const s = String(n || 'Item');
-      return s.length > 50 ? s.slice(0, 50) : s; // Midtrans limit
+      return s.length > 50 ? s.slice(0, 50) : s;
     };
     const item_details = items.map((it) => ({
       id: String(it.productId || it.id || 'item'),
@@ -32,74 +33,61 @@ export default async function handler(req, res) {
       name: sanitizeName(it.name)
     }));
 
-    // Add shipping as an item for clarity
-    const shippingPrice = Number(inv.shippingSelection?.price || inv.shippingCost || 0);
-    if (shippingPrice > 0) {
-      item_details.push({ id: 'shipping', price: Math.round(shippingPrice), quantity: 1, name: 'Shipping' });
+    const shippingCost = Math.round(Number(inv.shipping_cost || inv.shippingCost || 0));
+    if (shippingCost > 0) {
+      item_details.push({
+        id: 'SHIPPING_FEE',
+        price: shippingCost,
+        quantity: 1,
+        name: 'Ongkos Kirim'
+      });
     }
 
-    // Add payment fee if present
-    const transferFee = Number(inv.transferFee || 0);
-    if (transferFee > 0) {
-      item_details.push({ id: 'payment_fee', price: Math.round(transferFee), quantity: 1, name: 'Payment Fee' });
+    const discountAmount = Math.round(Number(inv.discount_amount || inv.discountAmount || 0));
+    if (discountAmount > 0) {
+      item_details.push({
+        id: 'DISCOUNT',
+        price: -discountAmount,
+        quantity: 1,
+        name: 'Diskon Voucher'
+      });
     }
 
-    // Ensure gross_amount equals the sum of item_details
-    const grossAmount = item_details.reduce((sum, it) => sum + (Math.round(Number(it.price)) * Math.max(1, Number(it.quantity))), 0);
-    if (!grossAmount || grossAmount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+    const gross_amount = Math.round(Number(inv.grand_total || inv.grandTotal || 0));
+    const randomSuffix = Math.random().toString(36).substring(2, 7);
+    const order_id = `${invoiceId}-${randomSuffix}`;
 
-    // Ensure unique order_id per transaction attempt to avoid reuse error
-    const baseId = String(inv.invoiceId || invoiceId);
-    // Add random suffix to avoid millisecond-collision and prior reuse
-    const randomSuffix = Math.random().toString(36).slice(2, 8);
-    const orderId = `${baseId}-${Date.now()}-${randomSuffix}`;
-
-    const customer_details = {
-      first_name: inv.buyerName || 'Buyer',
-      email: inv.buyerEmail || undefined,
-      phone: inv.buyerPhone || undefined,
-      billing_address: {
-        address: inv.buyerAddress || inv.shippingAddress?.address || '',
-        city: inv.shippingAddress?.city || '',
-        postal_code: String(inv.shippingAddress?.postal_code || '')
-      },
-      shipping_address: {
-        address: inv.shippingAddress?.address || '',
-        city: inv.shippingAddress?.city || '',
-        postal_code: String(inv.shippingAddress?.postal_code || '')
-      }
-    };
-
-    const transaction = {
+    const parameter = {
       transaction_details: {
-        order_id: orderId,
-        gross_amount: grossAmount
+        order_id,
+        gross_amount
       },
       item_details,
-      customer_details,
-      credit_card: { secure: true },
-      callbacks: {
-        finish: `${req.headers.origin || process.env.NEXT_PUBLIC_BASE_URL || ''}/account`
+      customer_details: {
+        first_name: inv.buyer_name || inv.buyerName || 'Customer',
+        email: inv.buyer_email || inv.buyerEmail || undefined,
+        phone: inv.buyer_phone || inv.buyerPhone || undefined,
       }
     };
 
-    const response = await snap.createTransaction(transaction);
+    const transaction = await snap.createTransaction(parameter);
 
-    // Store token & redirect_url
-    await adminDb.collection('invoices').doc(String(invoiceId)).update({
-      paymentMethod: 'midtrans',
-      'midtrans.order_id': orderId,
-      'midtrans.token': response.token,
-      'midtrans.redirect_url': response.redirect_url,
-      updatedAt: new Date()
+    await supabaseAdmin.from('invoices').update({
+      midtrans: {
+        token: transaction.token,
+        redirect_url: transaction.redirect_url,
+        order_id,
+      },
+      updated_at: new Date().toISOString(),
+    }).eq('id', String(invoiceId));
+
+    return res.status(200).json({
+      token: transaction.token,
+      redirect_url: transaction.redirect_url,
+      order_id
     });
-
-    return res.status(200).json({ token: response.token, redirect_url: response.redirect_url });
   } catch (e) {
-    console.error('midtrans/create-transaction error', e.response?.data || e);
-    return res.status(500).json({ 
-      error: 'Internal Server Error',
-      details: e.response?.data || e.message || String(e)
-    });
+    console.error('Midtrans create-transaction error:', e);
+    return res.status(500).json({ error: e.message || 'Internal error' });
   }
 }

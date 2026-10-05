@@ -1,30 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useStorage } from '@/hooks/useStorage';
-import {
-  doc as fsDoc,
-  getDoc as fsGetDoc,
-  setDoc as fsSetDoc,
-  updateDoc as fsUpdateDoc
-} from 'firebase/firestore';
 import AdminLayout from '../_layout';
-import { firestore, auth } from '@/utils/firebase';
-import {
-  collection,
-  addDoc,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
-  serverTimestamp,
-  getDocs,
-  deleteDoc,
-  doc,
-  getDoc
-} from 'firebase/firestore';
+import { supabase } from '@/utils/supabase';
+import { useAuth } from '@/context/AuthContext';
 import Image from 'next/image';
 import AreaSelect from '@/components/AreaSelect';
 
 export default function AdminSettingsPage() {
+  const { user } = useAuth();
   // Telegram chat ID admin management
   const [chatIds, setChatIds] = useState([]);
   const [newChatId, setNewChatId] = useState('');
@@ -76,49 +59,46 @@ export default function AdminSettingsPage() {
   const [editDraft, setEditDraft] = useState(null);
 
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(async (u) => {
-      if (!u) {
-        setIsAdmin(false);
-        return;
-      }
-      try {
-        const userSnap = await getDoc(doc(firestore, 'users', u.uid));
-        if (userSnap.exists()) {
-          const d = userSnap.data();
-          setIsAdmin(d.role === 'admin' || d.isAdmin === true);
-        } else {
-          setIsAdmin(false);
-        }
-      } catch {
-        setIsAdmin(false);
-      }
-    });
-    return () => unsub();
-  }, []);
+    if (user === undefined) return; // still loading
+    if (!user) {
+      setIsAdmin(false);
+      return;
+    }
+    // Check admin role via Supabase
+    supabase.from('users').select('role').eq('id', user.id).single()
+      .then(({ data, error }) => {
+        if (error || !data) { setIsAdmin(false); return; }
+        setIsAdmin(data.role === 'admin');
+      })
+      .catch(() => setIsAdmin(false));
+  }, [user]);
 
   // Load Telegram chatIds
   useEffect(() => {
     if (isAdmin !== true) return;
     setChatLoading(true);
-    fsGetDoc(fsDoc(firestore, 'settings', 'telegram')).then(snap => {
-      const arr = Array.isArray(snap.data()?.chatIds) ? snap.data().chatIds : [];
-      setChatIds(arr);
-    }).catch(() => setChatIds([])).finally(() => setChatLoading(false));
+    supabase.from('settings').select('chat_ids').eq('type', 'telegram').single()
+      .then(({ data }) => {
+        const arr = Array.isArray(data?.chat_ids) ? data.chat_ids : [];
+        setChatIds(arr);
+      })
+      .catch(() => setChatIds([]))
+      .finally(() => setChatLoading(false));
   }, [isAdmin]);
 
   // Load WhatsApp numbers & rotation state
   useEffect(() => {
     if (isAdmin !== true) return;
     setWaLoading(true);
-    fsGetDoc(fsDoc(firestore, 'settings', 'whatsapp')).then(snap => {
-      const data = snap.data() || {};
-      const nums = Array.isArray(data.numbers) ? data.numbers : [];
-      setWaNumbers(nums);
-      setRotationIndex(Number.isInteger(data.rotationIndex) && data.rotationIndex < nums.length ? data.rotationIndex : 0);
-    }).catch(() => {
-      setWaNumbers([]);
-      setRotationIndex(0);
-    }).finally(() => setWaLoading(false));
+    supabase.from('settings').select('numbers, rotation_index').eq('type', 'whatsapp').single()
+      .then(({ data }) => {
+        const nums = Array.isArray(data?.numbers) ? data.numbers : [];
+        setWaNumbers(nums);
+        const idx = data?.rotation_index;
+        setRotationIndex(Number.isInteger(idx) && idx < nums.length ? idx : 0);
+      })
+      .catch(() => { setWaNumbers([]); setRotationIndex(0); })
+      .finally(() => setWaLoading(false));
   }, [isAdmin]);
 
   // Load Pickup Locations and primary setting via API (avoid client rules issues)
@@ -149,18 +129,13 @@ export default function AdminSettingsPage() {
     setChatError('');
     setChatOk('');
     const id = newChatId.trim();
-    if (!id) {
-      setChatError('Chat ID wajib diisi.');
-      return;
-    }
-    if (chatIds.includes(id)) {
-      setChatError('Chat ID sudah ada.');
-      return;
-    }
+    if (!id) { setChatError('Chat ID wajib diisi.'); return; }
+    if (chatIds.includes(id)) { setChatError('Chat ID sudah ada.'); return; }
     setChatLoading(true);
     try {
       const next = [...chatIds, id];
-      await fsSetDoc(fsDoc(firestore, 'settings', 'telegram'), { chatIds: next }, { merge: true });
+      const { error } = await supabase.from('settings').upsert({ type: 'telegram', chat_ids: next }, { onConflict: 'type' });
+      if (error) throw error;
       setChatIds(next);
       setNewChatId('');
       setChatOk('Chat ID ditambah.');
@@ -184,10 +159,9 @@ export default function AdminSettingsPage() {
     if (waNumbers.includes(cleaned)) { setWaError('Nomor sudah ada.'); return; }
     setWaLoading(true);
     try {
-      const token = await auth.currentUser?.getIdToken?.();
       const r = await fetch('/api/admin/wa-settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'add', number: cleaned })
       });
       const data = await r.json();
@@ -209,10 +183,9 @@ export default function AdminSettingsPage() {
     if (!confirm('Hapus nomor WA ini?')) return;
     setWaLoading(true); setWaError(''); setWaOk('');
     try {
-      const token = await auth.currentUser?.getIdToken?.();
       const r = await fetch('/api/admin/wa-settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'remove', number: num })
       });
       const data = await r.json();
@@ -234,10 +207,9 @@ export default function AdminSettingsPage() {
     try {
       let idx = rotationIndex;
       if (idx < 0 || idx >= waNumbers.length) idx = 0;
-      const token = await auth.currentUser?.getIdToken?.();
       const r = await fetch('/api/admin/wa-settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'setRotation', rotationIndex: idx })
       });
       const data = await r.json();
@@ -256,10 +228,9 @@ export default function AdminSettingsPage() {
     if (!waNumbers.length) return;
     setWaLoading(true); setWaError(''); setWaOk('');
     try {
-      const token = await auth.currentUser?.getIdToken?.();
       const r = await fetch('/api/admin/wa-settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'advance' })
       });
       const data = await r.json();
@@ -446,7 +417,8 @@ export default function AdminSettingsPage() {
     setChatOk('');
     try {
       const next = chatIds.filter(x => x !== id);
-      await fsSetDoc(fsDoc(firestore, 'settings', 'telegram'), { chatIds: next }, { merge: true });
+      const { error } = await supabase.from('settings').upsert({ type: 'telegram', chat_ids: next }, { onConflict: 'type' });
+      if (error) throw error;
       setChatIds(next);
       setChatOk('Chat ID dihapus.');
     } catch (err) {
@@ -457,31 +429,32 @@ export default function AdminSettingsPage() {
     }
   };
 
-  // Load categories realtime (hanya jika admin)
+  // Load categories (polling)
+  const loadCats = useCallback(async () => {
+    const { data } = await supabase.from('categories').select('*').order('created_at', { ascending: false });
+    const list = data || [];
+    setCats(list);
+    setCatEdits(prev => {
+      const next = {};
+      list.forEach(cat => {
+        next[cat.id] = prev[cat.id] || {
+          discountPercent: cat.discount_percent ?? '',
+          discountActive: cat.discount_active ?? false,
+          discountStart: toLocalInputValue(cat.discount_start),
+          discountEnd: toLocalInputValue(cat.discount_end),
+          banner: cat.banner ?? ''
+        };
+      });
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     if (isAdmin !== true) return;
-    const qCat = query(collection(firestore, 'categories'), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(qCat, snap => {
-      const list = [];
-      snap.forEach(d => list.push({ id: d.id, ...d.data() }));
-      setCats(list);
-      // reset edits when list changes (preserve existing edits if same id)
-      setCatEdits(prev => {
-        const next = {};
-        list.forEach(cat => {
-          next[cat.id] = prev[cat.id] || {
-            discountPercent: cat.discountPercent ?? '',
-            discountActive: cat.discountActive ?? false,
-            discountStart: toLocalInputValue(cat.discountStart),
-            discountEnd: toLocalInputValue(cat.discountEnd),
-            banner: cat.banner ?? ''
-          };
-        });
-        return next;
-      });
-    }, () => setCats([]));
-    return () => unsub && unsub();
-  }, [isAdmin]);
+    loadCats();
+    const iv = setInterval(loadCats, 30000);
+    return () => clearInterval(iv);
+  }, [isAdmin, loadCats]);
 
   const toSlug = (str) =>
     str
@@ -493,59 +466,54 @@ export default function AdminSettingsPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!isAdmin) {
-      setError('Tidak punya izin.');
-      return;
-    }
+    if (!isAdmin) { setError('Tidak punya izin.'); return; }
     setError('');
     setOk('');
     const n = name.trim();
-    if (!n) {
-      setError('Nama kategori wajib.');
-      return;
-    }
+    if (!n) { setError('Nama kategori wajib.'); return; }
     const slug = toSlug(n);
     setLoading(true);
     try {
-      // Cek duplikat:
-      // - Sub-kategori (parentId ada): slug hanya perlu unik dalam parent yang sama
-      // - Kategori utama (parentId null): slug harus unik secara global di antara root kategori
-      let qDup;
+      // Cek duplikat
+      let dupQuery = supabase.from('categories').select('id').eq('slug', slug);
       if (parentId) {
-        qDup = query(
-          collection(firestore, 'categories'),
-          where('slug', '==', slug),
-          where('parentId', '==', parentId)
-        );
+        dupQuery = dupQuery.eq('parent_id', parentId);
       } else {
-        qDup = query(
-          collection(firestore, 'categories'),
-          where('slug', '==', slug),
-          where('parentId', '==', null)
-        );
+        dupQuery = dupQuery.is('parent_id', null);
       }
-      const dupSnap = await getDocs(qDup);
-      if (!dupSnap.empty) {
+      const { data: dupData } = await dupQuery;
+      if (dupData && dupData.length > 0) {
         setError(parentId
           ? 'Sub-kategori dengan nama ini sudah ada di kategori yang sama.'
           : 'Kategori dengan slug ini sudah ada.');
         setLoading(false);
         return;
       }
-      await addDoc(collection(firestore, 'categories'), {
+      const insertPayload = {
+        id: `cat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         name: n,
         slug,
-        icon: icon.trim() || '',
-        banner: banner.trim() || '',
-        active: true,
-        parentId: parentId || null,
-        createdAt: serverTimestamp()
-      });
+        parent_id: parentId || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      // Add optional fields only if they exist
+      if (icon.trim()) insertPayload.icon = icon.trim();
+      if (banner.trim()) insertPayload.banner = banner.trim();
+      
+      console.log('Inserting category:', insertPayload);
+      const { error: insErr } = await supabase.from('categories').insert(insertPayload);
+      if (insErr) {
+        console.error('Supabase insert error:', insErr);
+        throw insErr;
+      }
       setOk('Kategori ditambah.');
       setName('');
       setIcon('');
       setBanner('');
       setParentId('');
+      await loadCats();
     } catch (err) {
       setError(err.message || 'Gagal menambah.');
     } finally {
@@ -569,7 +537,16 @@ export default function AdminSettingsPage() {
       const now = Date.now();
       const path = `${folder}/${now}-${fileNameSlug}`;
       const downloadUrl = await uploadFile(file, path);
-      if (downloadUrl) setIcon(downloadUrl);
+      if (downloadUrl) {
+        // Check if uploading for existing category (edit mode)
+        if (activeUploadCatId) {
+          setEdit(activeUploadCatId, 'icon', downloadUrl);
+          setActiveUploadCatId(null);
+        } else {
+          // New category form
+          setIcon(downloadUrl);
+        }
+      }
     } catch (err) {
       alert(err.message || 'Upload gagal');
     } finally {
@@ -629,23 +606,16 @@ export default function AdminSettingsPage() {
   const handleDeleteExistingBanner = async (cat, bannerUrl) => {
     if (!bannerUrl) return;
     if (!confirm('Hapus banner ini dari kategori?')) return;
-    
     try {
-      // Hapus file dari storage jika merupakan URL firebase
       if (bannerUrl.includes('firebasestorage')) {
         await deleteFile(bannerUrl);
       }
-      
-      // Update dokumen firestore untuk menghilangkan banner
-      const catRef = doc(firestore, 'categories', cat.id);
-      await fsUpdateDoc(catRef, {
+      const { error } = await supabase.from('categories').update({
         banner: '',
-        updatedAt: serverTimestamp()
-      });
-      
-      // Update local edit state
+        updated_at: new Date().toISOString()
+      }).eq('id', cat.id);
+      if (error) throw error;
       setEdit(cat.id, 'banner', '');
-      
       alert('Banner berhasil dihapus');
     } catch (err) {
       alert(err.message || 'Gagal menghapus banner');
@@ -656,18 +626,19 @@ export default function AdminSettingsPage() {
     if (!cat?.id) return;
     if (!confirm(`Hapus kategori "${cat.name}"?`)) return;
     try {
-      await deleteDoc(doc(firestore, 'categories', cat.id));
+      const { error } = await supabase.from('categories').delete().eq('id', cat.id);
+      if (error) throw error;
+      await loadCats();
     } catch (e) {
       alert('Gagal hapus.');
     }
-  }, []);
+  }, [loadCats]);
 
   // Helpers for datetime-local value conversion
   function toLocalInputValue(v) {
     try {
       let dt = null;
-      if (v?.toDate?.()) dt = v.toDate();
-      else if (typeof v === 'number') dt = new Date(v);
+      if (typeof v === 'number') dt = new Date(v);
       else if (typeof v === 'string') dt = new Date(v);
       if (!dt || isNaN(dt.getTime())) return '';
       const pad = (n) => String(n).padStart(2, '0');
@@ -701,16 +672,20 @@ export default function AdminSettingsPage() {
       alert('Diskon harus 0..90');
       return;
     }
+    const startVal = fromLocalInputValue(ed.discountStart);
+    const endVal = fromLocalInputValue(ed.discountEnd);
     const payload = {
-      discountPercent: percent || 0,
-      discountActive: !!ed.discountActive,
-      discountStart: fromLocalInputValue(ed.discountStart) || null,
-      discountEnd: fromLocalInputValue(ed.discountEnd) || null,
+      discount_percent: percent || 0,
+      discount_active: !!ed.discountActive,
+      discount_start: startVal ? startVal.toISOString() : null,
+      discount_end: endVal ? endVal.toISOString() : null,
+      icon: ed.icon !== undefined ? ed.icon : (cat.icon || ''),
       banner: ed.banner !== undefined ? ed.banner : (cat.banner || ''),
-      updatedAt: serverTimestamp()
+      updated_at: new Date().toISOString()
     };
     try {
-      await fsUpdateDoc(fsDoc(firestore, 'categories', cat.id), payload);
+      const { error } = await supabase.from('categories').update(payload).eq('id', cat.id);
+      if (error) throw error;
       setOk(`Diskon kategori "${cat.name}" disimpan.`);
       setTimeout(() => setOk(''), 2000);
     } catch (e) {
@@ -1033,7 +1008,7 @@ export default function AdminSettingsPage() {
               className="w-full px-3 py-2 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-orange-400 mb-4"
             >
               <option value="">-- Kategori Utama --</option>
-              {cats.filter(c => !c.parentId).map(c => (
+              {cats.filter(c => !c.parent_id).map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
@@ -1132,21 +1107,21 @@ export default function AdminSettingsPage() {
           <h2 className="text-sm font-semibold text-gray-700 mb-3">Daftar Kategori</h2>
           <div className="bg-white border rounded-lg shadow-sm divide-y">
             {(() => {
-              const mainCats = cats.filter(c => !c.parentId);
+              const mainCats = cats.filter(c => !c.parent_id);
               const groupedCats = [];
               mainCats.forEach(main => {
                 groupedCats.push(main);
-                groupedCats.push(...cats.filter(c => c.parentId === main.id));
+                groupedCats.push(...cats.filter(c => c.parent_id === main.id));
               });
               // Append any orphaned subcategories at the very end
-              groupedCats.push(...cats.filter(c => c.parentId && !mainCats.find(m => m.id === c.parentId)));
+              groupedCats.push(...cats.filter(c => c.parent_id && !mainCats.find(m => m.id === c.parent_id)));
               
               if (groupedCats.length === 0) {
                 return <div className="p-4 text-xs text-gray-500">Belum ada kategori.</div>;
               }
               
               return groupedCats.map(cat => (
-              <div key={cat.id} className={`flex flex-col gap-3 p-3 ${cat.parentId ? 'ml-8 border-l-2 border-blue-200 bg-blue-50/30' : ''}`}>
+              <div key={cat.id} className={`flex flex-col gap-3 p-3 ${cat.parent_id ? 'ml-8 border-l-2 border-blue-200 bg-blue-50/30' : ''}`}>
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 flex items-center justify-center rounded bg-gray-50 border">
                   {cat.icon ? (
@@ -1164,7 +1139,7 @@ export default function AdminSettingsPage() {
                   )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-800">{cat.name} {cat.parentId ? <span className="text-[10px] bg-blue-50 text-blue-600 px-1 py-0.5 rounded ml-1">Subkategori dari {cats.find(c => c.id === cat.parentId)?.name || 'Kategori Terhapus'}</span> : <span className="text-[10px] bg-green-50 text-green-600 px-1 py-0.5 rounded ml-1">Kategori Utama</span>}</div>
+                    <div className="text-sm font-medium text-gray-800">{cat.name} {cat.parent_id ? <span className="text-[10px] bg-blue-50 text-blue-600 px-1 py-0.5 rounded ml-1">Subkategori dari {cats.find(c => c.id === cat.parent_id)?.name || 'Kategori Terhapus'}</span> : <span className="text-[10px] bg-green-50 text-green-600 px-1 py-0.5 rounded ml-1">Kategori Utama</span>}</div>
                     <div className="text-[11px] text-gray-500">/{cat.slug}</div>
                   </div>
                   <button
@@ -1176,7 +1151,7 @@ export default function AdminSettingsPage() {
                 </div>
 
                 {/* Discount and Banner controls */}
-                {cat.parentId ? (
+                {cat.parent_id ? (
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
                   <div>
                     <label className="block text-[11px] text-gray-600 mb-1">Diskon (%)</label>
@@ -1184,7 +1159,7 @@ export default function AdminSettingsPage() {
                       type="number"
                       min={0}
                       max={90}
-                      value={catEdits[cat.id]?.discountPercent ?? ''}
+                      value={catEdits[cat.id]?.discountPercent ?? (cat.discount_percent ?? '')}
                       onChange={(e) => setEdit(cat.id, 'discountPercent', e.target.value)}
                       className="w-full px-3 py-2 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-orange-400"
                       placeholder="0-90"
@@ -1194,7 +1169,7 @@ export default function AdminSettingsPage() {
                     <label className="block text-[11px] text-gray-600 mb-1">Mulai</label>
                     <input
                       type="datetime-local"
-                      value={catEdits[cat.id]?.discountStart ?? ''}
+                      value={catEdits[cat.id]?.discountStart ?? toLocalInputValue(cat.discount_start)}
                       onChange={(e) => setEdit(cat.id, 'discountStart', e.target.value)}
                       className="w-full px-3 py-2 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-orange-400"
                     />
@@ -1203,7 +1178,7 @@ export default function AdminSettingsPage() {
                     <label className="block text-[11px] text-gray-600 mb-1">Selesai</label>
                     <input
                       type="datetime-local"
-                      value={catEdits[cat.id]?.discountEnd ?? ''}
+                      value={catEdits[cat.id]?.discountEnd ?? toLocalInputValue(cat.discount_end)}
                       onChange={(e) => setEdit(cat.id, 'discountEnd', e.target.value)}
                       className="w-full px-3 py-2 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-orange-400"
                     />
@@ -1212,7 +1187,7 @@ export default function AdminSettingsPage() {
                     <input
                       id={`active-${cat.id}`}
                       type="checkbox"
-                      checked={!!catEdits[cat.id]?.discountActive}
+                      checked={!!(catEdits[cat.id]?.discountActive ?? cat.discount_active)}
                       onChange={(e) => setEdit(cat.id, 'discountActive', e.target.checked)}
                       className="h-4 w-4 text-orange-600 border-gray-300 rounded"
                     />
@@ -1230,6 +1205,35 @@ export default function AdminSettingsPage() {
                   <div className="text-[10px] text-gray-400 italic py-1">Pengaturan diskon hanya untuk subkategori.</div>
                 )}
                 
+                <div className="border-t pt-3 mt-1">
+                  <label className="block text-[11px] text-gray-600 mb-1">Icon Kategori URL</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={catEdits[cat.id]?.icon !== undefined ? catEdits[cat.id].icon : (cat.icon || '')}
+                      onChange={(e) => setEdit(cat.id, 'icon', e.target.value)}
+                      className="flex-1 px-3 py-2 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-orange-400"
+                      placeholder="https://..."
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveUploadCatId(cat.id);
+                        fileInputRef.current?.click();
+                      }}
+                      className="px-3 py-2 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 border whitespace-nowrap"
+                    >Upload Icon</button>
+                  </div>
+                  {(catEdits[cat.id]?.icon !== undefined ? catEdits[cat.id].icon : cat.icon)?.trim() && (
+                    <div className="mt-2 text-xs text-gray-500">
+                      Pratinjau Icon:
+                      <div className="mt-1">
+                        <img src={catEdits[cat.id]?.icon !== undefined ? catEdits[cat.id].icon : cat.icon} alt="icon" className="h-12 w-12 object-contain border rounded" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="border-t pt-3 mt-1">
                   <label className="block text-[11px] text-gray-600 mb-1">Banner Kategori URL</label>
                   <div className="flex gap-2">

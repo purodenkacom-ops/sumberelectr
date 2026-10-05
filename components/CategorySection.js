@@ -7,8 +7,7 @@ import { Pagination } from 'swiper/modules';
 import 'swiper/css';
 import 'swiper/css/pagination';
 
-import { firestore } from '@/utils/firebase';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { supabase } from '@/utils/supabase';
 
 const placeholderImg = '/logo.png';
 
@@ -28,44 +27,46 @@ const CategorySection = () => {
   };
 
   useEffect(() => {
-    const qRef = query(collection(firestore, 'categories'), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(qRef, snap => {
-      const list = [];
-      snap.forEach(d => {
-        const data = d.data();
-        const name = data.name || 'Kategori';
-        const slug = data.slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-        list.push({
-          id: d.id,
-          name,
-          slug,
-          parentId: data.parentId || null,
-          img: data.icon || data.image || data.img || ''
+    let mounted = true;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('categories')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        const list = (data || []).map(d => {
+          const name = d.name || 'Kategori';
+          const slug = d.slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+          return {
+            id: d.id,
+            name,
+            slug,
+            parentId: d.parent_id || null,
+            img: d.icon || d.image || d.img || ''
+          };
         });
-      });
-
-      // Hanya tampilkan kategori utama (tanpa parentId)
-      let mainCats = list.filter(c => !c.parentId);
-
-      if (!shuffledRef.current) {
-        shuffle(mainCats);
-        orderRef.current = mainCats.map(c => c.id);
-        shuffledRef.current = true;
-        setCategories(mainCats);
-      } else {
-        const oldOrder = orderRef.current;
-        const existing = oldOrder.map(id => mainCats.find(c => c.id === id)).filter(Boolean);
-        const newOnes = mainCats.filter(c => !oldOrder.includes(c.id));
-        const merged = [...existing, ...newOnes];
-        orderRef.current = merged.map(c => c.id);
-        setCategories(merged);
+        let mainCats = list.filter(c => !c.parentId);
+        if (!mounted) return;
+        if (!shuffledRef.current) {
+          shuffle(mainCats);
+          orderRef.current = mainCats.map(c => c.id);
+          shuffledRef.current = true;
+          setCategories(mainCats);
+        } else {
+          const oldOrder = orderRef.current;
+          const existing = oldOrder.map(id => mainCats.find(c => c.id === id)).filter(Boolean);
+          const newOnes = mainCats.filter(c => !oldOrder.includes(c.id));
+          const merged = [...existing, ...newOnes];
+          orderRef.current = merged.map(c => c.id);
+          setCategories(merged);
+        }
+        setLoading(false);
+      } catch {
+        if (mounted) { setCategories([]); setLoading(false); }
       }
-      setLoading(false);
-    }, () => {
-      setCategories([]);
-      setLoading(false);
-    });
-    return () => unsub();
+    })();
+    return () => { mounted = false; };
   }, []);
 
   // MOBILE (<= lg) logic: tetap 6 per halaman (2 baris x 3) seperti sebelumnya

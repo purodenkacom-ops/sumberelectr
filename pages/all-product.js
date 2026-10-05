@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import Head from 'next/head';
 import MiniNavbar from '@/components/MiniNavbar';
 import ProductCard from '@/components/ProductCard';
@@ -7,14 +7,15 @@ import ProductSidebar from '@/components/ProductSidebar';
 import Footer from '@/components/Footer';
 import { FaChevronDown } from 'react-icons/fa';
 import { useAuth } from '@/context/AuthContext';
-import { firestore } from '@/utils/firebase';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { useCategories } from '@/hooks/useCategories';
 
 const AllProductPage = () => {
   const { user } = useAuth();
-  const [categories, setCategories] = useState([]);
+  const { categories } = useCategories();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
 
   const [categoryFilter, setCategoryFilter] = useState('');
   const [subCategoryFilter, setSubCategoryFilter] = useState('');
@@ -23,13 +24,12 @@ const AllProductPage = () => {
   const [sortMode, setSortMode] = useState('default');
   const [page, setPage] = useState(1);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const [pageSize, setPageSize] = useState(16); // default desktop
+  const [pageSize, setPageSize] = useState(16);
 
   useEffect(() => {
-    // Set pageSize by device
     const handleResize = () => {
       if (typeof window !== 'undefined') {
-        setPageSize(window.innerWidth < 1024 ? 6 : 15);
+        setPageSize(window.innerWidth < 1024 ? 8 : 16);
       }
     };
     handleResize();
@@ -37,48 +37,38 @@ const AllProductPage = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      try {
-        // categories
-        try {
-          const catsSnap = await getDocs(query(collection(firestore, 'categories'), orderBy('createdAt', 'desc')));
-          const cats = [];
-          catsSnap.forEach(d => cats.push({ id: d.id, ...(d.data() || {}) }));
-          setCategories(cats);
-        } catch (e) {
-          setCategories([]);
-        }
-
-        // products
-        const prodSnap = await getDocs(collection(firestore, 'products'));
-        const list = prodSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) }));
-        setProducts(list);
-      } catch (err) {
-        console.error('Failed to load products', err);
-        setProducts([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, []);
-
-  const getMinPrice = (p) => {
+  const fetchProducts = useCallback(async () => {
+    setLoading(true);
     try {
-      if (Array.isArray(p.sizeVariants) && p.sizeVariants.length) {
-        const values = p.sizeVariants.map(v => Number(v.priceRetail || v.priceWholesale || 0)).filter(n => n > 0);
-        if (values.length) return Math.min(...values);
-      }
-      return Math.min(Number(p.priceRetail || p.price || 0) || Infinity, Number(p.priceWholesale || p.price || 0) || Infinity) || 0;
-    } catch { return 0; }
-  };
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(pageSize),
+        sort: sortMode,
+        promoOnly: promoOnly ? 'true' : 'false',
+      });
+      if (categoryFilter) params.append('category', categoryFilter);
+      if (subCategoryFilter) params.append('subCategory', subCategoryFilter);
 
-  // Sync sortMode with priceSort for mobile dropdown compatibility
+      const res = await fetch(`/api/products/paged?${params.toString()}`);
+      if (!res.ok) throw new Error('Failed to fetch');
+      const data = await res.json();
+      setProducts(data.products || []);
+      setTotalPages(data.pagination?.totalPages || 1);
+      setTotalCount(data.pagination?.total || 0);
+    } catch (err) {
+      console.error('Failed to load products', err);
+      setProducts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, pageSize, sortMode, promoOnly, categoryFilter, subCategoryFilter]);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
+
   const handleSortModeChange = (mode) => {
     setSortMode(mode);
-    // Sync the mobile dropdown
     if (mode === 'price-asc') setPriceSort('asc');
     else if (mode === 'price-desc') setPriceSort('desc');
     else setPriceSort('none');
@@ -87,98 +77,37 @@ const AllProductPage = () => {
 
   const handlePriceSortChange = (val) => {
     setPriceSort(val);
-    // Sync the desktop sort bar
     if (val === 'asc') setSortMode('price-asc');
     else if (val === 'desc') setSortMode('price-desc');
     else setSortMode('default');
     setPage(1);
   };
 
-  // Get active category slug for the sidebar
   const activeCategory = useMemo(() => {
-    return categories.find(c => c.name === categoryFilter && !c.parentId);
+    return categories.find(c => c.name === categoryFilter && !(c.parentId || c.parent_id));
   }, [categories, categoryFilter]);
 
   const activeCategorySlug = activeCategory?.slug || '';
 
-  // Get active subcategory slug for the sidebar
   const activeSubCategory = useMemo(() => {
     if (!activeCategory) return null;
-    return categories.find(c => c.name === subCategoryFilter && c.parentId === activeCategory.id);
+    return categories.find(c => c.name === subCategoryFilter && (c.parentId === activeCategory.id || c.parent_id === activeCategory.id));
   }, [categories, subCategoryFilter, activeCategory]);
 
   const activeSubCategorySlug = activeSubCategory?.slug || '';
 
-  const filtered = useMemo(() => {
-    let out = products.slice();
-    if (categoryFilter) {
-      out = out.filter(p => (p.category || '').toLowerCase() === String(categoryFilter).toLowerCase());
-    }
-    if (subCategoryFilter) {
-      out = out.filter(p => (p.subCategory || '').toLowerCase() === String(subCategoryFilter).toLowerCase());
-    }
-    if (promoOnly) {
-      out = out.filter(p => Number(p.discount) > 0).sort((a,b) => (Number(b.discount)||0) - (Number(a.discount)||0));
-    }
-
-    // Apply sort based on sortMode (desktop) or priceSort (mobile)
-    const effectiveSort = sortMode;
-
-    switch (effectiveSort) {
-      case 'az':
-        out.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'id'));
-        break;
-      case 'price-asc':
-        out.sort((a, b) => (getMinPrice(a) || 0) - (getMinPrice(b) || 0));
-        break;
-      case 'price-desc':
-        out.sort((a, b) => (getMinPrice(b) || 0) - (getMinPrice(a) || 0));
-        break;
-      case 'best-selling':
-        out.sort((a, b) => (Number(b.sold ?? b.salesCount ?? 0)) - (Number(a.sold ?? a.salesCount ?? 0)));
-        break;
-      case 'newest':
-        out.sort((a, b) => {
-          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return dateB - dateA;
-        });
-        break;
-      default:
-        // Default sort: kategori → sub kategori → nama produk (abjad)
-        out.sort((a, b) => {
-          const catA = (a.category || '').toLowerCase();
-          const catB = (b.category || '').toLowerCase();
-          if (catA !== catB) return catA.localeCompare(catB, 'id');
-          const subA = (a.subCategory || '').toLowerCase();
-          const subB = (b.subCategory || '').toLowerCase();
-          if (subA !== subB) return subA.localeCompare(subB, 'id');
-          const nameA = (a.name || '').toLowerCase();
-          const nameB = (b.name || '').toLowerCase();
-          return nameA.localeCompare(nameB, 'id');
-        });
-        break;
-    }
-    return out;
-  }, [products, categoryFilter, subCategoryFilter, priceSort, promoOnly, sortMode]);
-
-  // Pagination logic
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pagedProducts = filtered.slice((page - 1) * pageSize, page * pageSize);
-
-  // ItemList schema for SEO
   const itemListSchema = {
     "@context": "https://schema.org",
     "@type": "ItemList",
-    "itemListElement": filtered.map((p, idx) => ({
+    "itemListElement": products.map((p, idx) => ({
       "@type": "ListItem",
       "position": idx + 1,
-      "url": `/product/${p.productSlug || p.slug || p.id}`,
+      "url": `/product/${p.productSlug || p.product_slug || p.slug || p.id}`,
       "name": p.name,
       "image": p.image || (Array.isArray(p.images) ? p.images[0] : undefined) || '',
       "offers": {
         "@type": "Offer",
-        "price": getMinPrice(p),
+        "price": Number(p.priceRetail || p.price_retail || p.price || 0),
         "priceCurrency": "IDR",
         "availability": "https://schema.org/InStock"
       }
@@ -207,7 +136,6 @@ const AllProductPage = () => {
         }
       >
         <div className="lg:grid lg:grid-cols-[260px_1fr] lg:gap-8 lg:items-start">
-          {/* Sidebar */}
           <div className="hidden lg:block lg:sticky lg:top-20">
             <ProductSidebar
               currentCategorySlug={activeCategorySlug}
@@ -229,7 +157,6 @@ const AllProductPage = () => {
             />
           </div>
 
-          {/* Sidebar Drawer (Mobile) */}
           <ProductSidebar
             isMobile
             isOpen={isMobileSidebarOpen}
@@ -255,14 +182,12 @@ const AllProductPage = () => {
             }}
           />
 
-          {/* Main content */}
           <div>
             <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <h1 className="text-2xl font-bold text-red-700">Semua Produk</h1>
 
               <div className="w-full md:w-auto">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:gap-3 gap-3 w-full">
-                  {/* Category Filter Trigger for Mobile */}
                   <button
                     onClick={() => setIsMobileSidebarOpen(true)}
                     className="flex items-center justify-between gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm font-semibold text-gray-700 shadow-sm active:scale-[0.98] transition-all w-full sm:w-auto cursor-pointer"
@@ -284,7 +209,7 @@ const AllProductPage = () => {
                   </select>
 
                   <label className="inline-flex items-center gap-2 self-start sm:self-center">
-                    <input type="checkbox" checked={promoOnly} onChange={e => setPromoOnly(e.target.checked)} className="form-checkbox h-4 w-4 text-orange-600" />
+                    <input type="checkbox" checked={promoOnly} onChange={e => { setPromoOnly(e.target.checked); setPage(1); }} className="form-checkbox h-4 w-4 text-orange-600" />
                     <span className="text-sm">Promo</span>
                   </label>
                 </div>
@@ -294,10 +219,9 @@ const AllProductPage = () => {
             <ProductSortBar
               activeSort={sortMode}
               onSortChange={handleSortModeChange}
-              totalCount={filtered.length}
+              totalCount={totalCount}
             />
 
-            {/* Filter tags (visual cue for selected subcategory) */}
             {subCategoryFilter && (
               <div className="mb-4 flex items-center gap-2 flex-wrap">
                 <span className="text-xs text-gray-500 font-medium">Filter Aktif:</span>
@@ -317,23 +241,23 @@ const AllProductPage = () => {
             )}
 
             <div className="mb-4 text-sm text-gray-600">
-              Menampilkan {pagedProducts.length} dari {filtered.length} produk
+              Menampilkan {products.length} dari {totalCount} produk
             </div>
 
             {loading ? (
               <div className="text-gray-500">Memuat produk...</div>
-            ) : filtered.length === 0 ? (
+            ) : products.length === 0 ? (
               <div className="text-gray-500">Tidak ada produk sesuai filter.</div>
             ) : (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                  {pagedProducts.map(p => (
+                  {products.map(p => (
                     <ProductCard key={p.id} product={p} />
                   ))}
                 </div>
                 <div className="flex justify-center items-center gap-4 mt-6">
                   <button
-                    className="px-4 py-2 rounded bg-gray-200 text-gray-700 font-semibold disabled:opacity-50"
+                    className="px-4 py-2 rounded bg-gray-200 text-gray-700 font-semibold disabled:opacity-50 cursor-pointer"
                     disabled={page === 1}
                     onClick={() => setPage(page - 1)}
                   >
@@ -341,7 +265,7 @@ const AllProductPage = () => {
                   </button>
                   <span className="text-sm">Halaman {page} dari {totalPages}</span>
                   <button
-                    className="px-4 py-2 rounded bg-gray-200 text-gray-700 font-semibold disabled:opacity-50"
+                    className="px-4 py-2 rounded bg-gray-200 text-gray-700 font-semibold disabled:opacity-50 cursor-pointer"
                     disabled={page === totalPages}
                     onClick={() => setPage(page + 1)}
                   >

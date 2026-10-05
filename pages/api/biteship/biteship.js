@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { getShippingCost, getCoordinates } from '@/utils/biteship';
-import { adminDb } from '@/utils/firebaseAdmin';
+import { supabaseAdmin } from '@/utils/supabaseAdmin';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ message: 'Method not allowed' });
@@ -17,30 +17,35 @@ export default async function handler(req, res) {
       destination_longitude,
     } = req.body || {};
 
-    // Normalisasi couriers
     const courierStr = Array.isArray(couriers) ? couriers.join(',') : couriers || '';
     if (!courierStr) return res.status(400).json({ message: 'couriers wajib diisi' });
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: 'items wajib diisi' });
     }
 
-  const isInstant = /(^|,)(grab|gojek|lalamove)(,|$)/.test(courierStr);
+    const isInstant = /(^|,)(grab|gojek|lalamove)(,|$)/.test(courierStr);
 
     // ============ INSTANT FLOW ============
     if (isInstant) {
-      // Pakai origin dari body jika tersedia, fallback ke Primary Pickup coords, lalu ENV
       let originLat = (typeof req.body?.origin_latitude === 'number') ? req.body.origin_latitude : null;
       let originLng = (typeof req.body?.origin_longitude === 'number') ? req.body.origin_longitude : null;
       if (!Number.isFinite(originLat) || !Number.isFinite(originLng)) {
         try {
-          const settingsSnap = await adminDb.collection('settings').doc('pickups').get();
-          const primaryId = settingsSnap.exists ? settingsSnap.data().primaryId : null;
+          const { data: settingsRow } = await supabaseAdmin
+            .from('settings')
+            .select('*')
+            .eq('type', 'pickups')
+            .single();
+          const primaryId = settingsRow?.primaryId || settingsRow?.primary_id || null;
           if (primaryId) {
-            const pSnap = await adminDb.collection('pickup_locations').doc(String(primaryId)).get();
-            if (pSnap.exists) {
-              const p = pSnap.data();
-              const latPick = (p && p.latitude != null) ? Number(p.latitude) : (p?.area?.lat != null ? Number(p.area.lat) : null);
-              const lngPick = (p && p.longitude != null) ? Number(p.longitude) : (p?.area?.lng != null ? Number(p.area.lng) : null);
+            const { data: pRow } = await supabaseAdmin
+              .from('pickup_locations')
+              .select('*')
+              .eq('id', String(primaryId))
+              .single();
+            if (pRow) {
+              const latPick = pRow.latitude != null ? Number(pRow.latitude) : (pRow.area?.lat != null ? Number(pRow.area.lat) : null);
+              const lngPick = pRow.longitude != null ? Number(pRow.longitude) : (pRow.area?.lng != null ? Number(pRow.area.lng) : null);
               if (Number.isFinite(latPick) && Number.isFinite(lngPick)) {
                 originLat = latPick;
                 originLng = lngPick;
@@ -65,21 +70,15 @@ export default async function handler(req, res) {
       if ((destLat === null || destLng === null) && destination_address) {
         try {
           const coord = await getCoordinates(destination_address);
-          // getCoordinates diharapkan return { lat, lng } atau null
-          if (coord) {
-            destLat = coord.lat;
-            destLng = coord.lng;
-          }
-        } catch (e) {
-          // lanjut validasi di bawah
-        }
+          if (coord) { destLat = coord.lat; destLng = coord.lng; }
+        } catch (e) {}
       }
 
       if (typeof destLat !== 'number' || typeof destLng !== 'number') {
         return res.status(400).json({ message: 'Koordinat tujuan tidak valid / tidak ditemukan untuk kurir instant' });
       }
 
-  const instantPayload = {
+      const instantPayload = {
         couriers: courierStr,
         origin_latitude: originLat,
         origin_longitude: originLng,
@@ -100,22 +99,28 @@ export default async function handler(req, res) {
     }
 
     // ============ REGULER / NON-INSTANT FLOW ============
-    // Try primary pickup override
     let primaryOriginAreaId = null;
     let primaryOriginAddress = null;
     try {
-      const settingsSnap = await adminDb.collection('settings').doc('pickups').get();
-      const primaryId = settingsSnap.exists ? settingsSnap.data().primaryId : null;
+      const { data: settingsRow } = await supabaseAdmin
+        .from('settings')
+        .select('*')
+        .eq('type', 'pickups')
+        .single();
+      const primaryId = settingsRow?.primaryId || settingsRow?.primary_id || null;
       if (primaryId) {
-        const pSnap = await adminDb.collection('pickup_locations').doc(String(primaryId)).get();
-        if (pSnap.exists) {
-          const p = pSnap.data();
-          primaryOriginAreaId = p.area_id || (p.areaId && p.postal_code ? (p.areaId + 'IDZ' + p.postal_code) : null);
-          primaryOriginAddress = p.address || null;
+        const { data: pRow } = await supabaseAdmin
+          .from('pickup_locations')
+          .select('*')
+          .eq('id', String(primaryId))
+          .single();
+        if (pRow) {
+          primaryOriginAreaId = pRow.area_id || (pRow.areaId && pRow.postal_code ? (pRow.areaId + 'IDZ' + pRow.postal_code) : null);
+          primaryOriginAddress = pRow.address || null;
         }
       }
     } catch (e) {
-      // silent fallback
+      // silent fallback to env
     }
 
     const finalOriginAreaId = primaryOriginAreaId || origin_area_id || process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_AREA_ID || process.env.BITESHIP_ORIGIN_AREA_ID;
@@ -134,18 +139,17 @@ export default async function handler(req, res) {
       items,
     };
 
-    // Optional address (tidak selalu diperlukan Biteship tapi kirim kalau ada)
     if (primaryOriginAddress) ratePayload.origin_address = primaryOriginAddress;
     else if (origin_address) ratePayload.origin_address = origin_address;
     if (destination_address) ratePayload.destination_address = destination_address;
 
     console.log('[Biteship API] Regular rates payload:', JSON.stringify(ratePayload, null, 2));
-    
+
     const pricing = await getShippingCost(ratePayload);
     return res.status(200).json({ mode: 'regular', pricing });
   } catch (error) {
     console.error('[biteship rates error]', error.response?.data || error);
-    return res.status(500).json({ 
+    return res.status(500).json({
       message: error.message || 'Gagal ambil tarif Biteship',
       details: error.response?.data || String(error)
     });

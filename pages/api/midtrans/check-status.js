@@ -1,5 +1,5 @@
 import midtransClient from 'midtrans-client';
-import { adminDb } from '@/utils/firebaseAdmin';
+import { supabaseAdmin } from '@/utils/supabaseAdmin';
 
 export default async function handler(req, res) {
   try {
@@ -11,24 +11,26 @@ export default async function handler(req, res) {
     const serverKey = process.env.MIDTRANS_SERVER_KEY || process.env.MIDTRANS_SERVER_KEY_SANDBOX;
     if (!serverKey) return res.status(500).json({ error: 'MIDTRANS server key missing' });
 
-    const core = new midtransClient.CoreApi({ isProduction, serverKey, clientKey: process.env.MIDTRANS_CLIENT_KEY || process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY });
+    const core = new midtransClient.CoreApi({
+      isProduction,
+      serverKey,
+      clientKey: process.env.MIDTRANS_CLIENT_KEY || process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY
+    });
 
-    // Load invoice
-    const invRef = adminDb.collection('invoices').doc(String(invoiceId));
-    const invSnap = await invRef.get();
-    if (!invSnap.exists) return res.status(404).json({ error: 'Invoice not found' });
-    const inv = invSnap.data();
+    const { data: inv, error: fetchErr } = await supabaseAdmin
+      .from('invoices')
+      .select('*')
+      .eq('id', String(invoiceId))
+      .single();
+    if (fetchErr || !inv) return res.status(404).json({ error: 'Invoice not found' });
 
-    const orderId = inv?.midtrans?.order_id || inv.invoiceId || String(invoiceId);
+    const orderId = inv?.midtrans?.order_id || inv.invoice_id || String(invoiceId);
     if (!orderId) return res.status(400).json({ error: 'order_id not found on invoice' });
 
-    // Query Midtrans for latest status
     let status;
     try {
       status = await core.transaction.status(orderId);
     } catch (e) {
-      // If base id fails (because we append random suffix in some flows), try find by latest stored order_id
-      // Already using stored midtrans.order_id above; if not present, bail
       return res.status(502).json({ error: 'Failed to fetch status', detail: e?.message || 'unknown' });
     }
 
@@ -40,16 +42,20 @@ export default async function handler(req, res) {
       : null;
 
     const update = {
-      paymentMethod: 'midtrans',
-      'midtrans.last_check': status,
-      updatedAt: new Date()
+      payment_method: 'midtrans',
+      midtrans: { ...(inv.midtrans || {}), last_check: status },
+      updated_at: new Date().toISOString()
     };
     if (mapped) {
       update.status = mapped;
-      if (mapped === 'paid') update.paidAt = new Date();
+      if (mapped === 'paid') update.paid_at = new Date().toISOString();
     }
 
-    await invRef.update(update);
+    const { error: updateErr } = await supabaseAdmin
+      .from('invoices')
+      .update(update)
+      .eq('id', String(invoiceId));
+    if (updateErr) console.warn('check-status update warn:', updateErr.message);
 
     return res.status(200).json({ ok: true, mapped, status });
   } catch (e) {

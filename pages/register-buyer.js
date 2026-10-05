@@ -1,15 +1,14 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
-import { auth, firestore, createUserWithEmailAndPassword, doc, setDoc } from '@/utils/firebase';
-import { EmailAuthProvider, linkWithCredential } from 'firebase/auth';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/utils/supabase';
 import AreaSelect from '../components/AreaSelect';
 import Link from 'next/link';
-import { sendEmailVerification } from 'firebase/auth';
+import Image from 'next/image';
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.purodenka.com';
-
-export default function RegisterPage() {
+export default function RegisterBuyerPage() {
   const router = useRouter();
+  const { signup } = useAuth();
   const [form, setForm] = useState({
     name: '',
     street: '',
@@ -22,6 +21,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [success, setSuccess] = useState(false);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -31,7 +31,6 @@ export default function RegisterPage() {
     setForm({ ...form, area });
   };
 
-  // Helper untuk bikin address dari street + area
   const makeAddress = (street, area) => {
     if (!area) return street;
     const { id, ...areaNoId } = area;
@@ -46,226 +45,224 @@ export default function RegisterPage() {
     return addressParts.join(', ');
   };
 
-  // Buat area tanpa id
-  const areaWithoutId = (area) => {
-    if (!area) return null;
-    const { id, ...rest } = area;
-    return rest;
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
 
-    // Validasi form
     if (!form.name || !form.street || !form.phone || !form.area ||
         !form.email || !form.password || !form.confirmPassword) {
       setError('Mohon lengkapi semua data.');
-      setLoading(false);
+      return;
+    }
+
+    if (form.password.length < 6) {
+      setError('Password minimal 6 karakter.');
       return;
     }
 
     if (form.password !== form.confirmPassword) {
-      setError('Kata sandi tidak sama.');
-      setLoading(false);
+      setError('Kata sandi tidak cocok.');
       return;
     }
 
+    setLoading(true);
+
     try {
-      let user;
-      if (auth.currentUser && auth.currentUser.isAnonymous) {
-        // Upgrade anonymous account to permanent with email/password (keeps UID)
-        const credential = EmailAuthProvider.credential(form.email, form.password);
-        const linkRes = await linkWithCredential(auth.currentUser, credential);
-        user = linkRes.user;
-      } else {
-        const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
-        user = cred.user;
+      const fullAddress = makeAddress(form.street, form.area);
+      const extraData = {
+        full_name: form.name,
+        phone: form.phone,
+        address: fullAddress,
+        street: form.street,
+        area: form.area,
+      };
+
+      const res = await signup(form.email, form.password, extraData);
+      const authUser = res?.user;
+
+      if (authUser) {
+        // Buat record di public.users
+        const profileRow = {
+          id: authUser.id,
+          email: form.email,
+          role: 'buyer',
+          profile: {
+            name: form.name,
+            phone: form.phone,
+            address: fullAddress,
+            street: form.street,
+            area: form.area,
+          },
+          updated_at: new Date().toISOString(),
+        };
+
+        await supabase.from('users').upsert(profileRow);
       }
 
-      // Simpan user profile dengan emailVerified false
-      await setDoc(doc(firestore, 'users', user.uid), {
-        buyerName: form.name,
-        phone: form.phone,
-        street: form.street,
-        role: 'buyer',
-        email: form.email,
-        profilePicture: '',
-        area_id: form.area?.id + "IDZ" + form.area?.postal_code || '',
-        province: form.area?.province || '',
-        city: form.area?.city_name || '',
-        district: form.area?.name || '',
-        postal_code: form.area?.postal_code || '',
-        address: makeAddress(form.street, form.area),
-        area: areaWithoutId(form.area),
-        createdAt: new Date(),
-        emailVerified: false
-      }, { merge: true });
-
-      // Kirim email verifikasi dengan continue URL
-      const actionCodeSettings = {
-        url: `${SITE_URL}/please-verify?email=${encodeURIComponent(form.email)}`,
-        handleCodeInApp: false
-      };
-      await sendEmailVerification(user, actionCodeSettings);
-
-      // (Opsional) jika ingin langsung signOut setelah kirim verifikasi,
-      // aktifkan baris di bawah ini (hapus komentar):
-      // await auth.signOut();
-      // router.push(`/please-verify?sent=1&email=${encodeURIComponent(form.email)}`);
-      // Arahkan ke halaman instruksi verifikasi (user tetap login tapi dibatasi)
-      router.push(`/please-verify?sent=1&email=${encodeURIComponent(form.email)}`);
+      setSuccess(true);
     } catch (err) {
-      console.error('Error during registration:', err);
-      setError(err.code === 'auth/email-already-in-use'
-        ? 'Email sudah terdaftar.'
-        : (err.message || 'Registrasi gagal. Silakan coba lagi.'));
+      console.error('Registration error:', err);
+      if (err.message?.includes('User already registered')) {
+        setError('Email ini sudah terdaftar. Silakan masuk.');
+      } else {
+        setError(err.message || 'Gagal mendaftar. Silakan coba lagi.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  if (success) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 text-center border border-gray-100">
+          <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold">
+            ✓
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Pendaftaran Berhasil!</h2>
+          <p className="text-sm text-gray-600 mb-6">
+            Akun Anda telah dibuat. Silakan periksa inbox email Anda untuk verifikasi atau langsung masuk.
+          </p>
+          <Link
+            href="/login"
+            className="block w-full bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 rounded-lg transition text-sm text-center"
+          >
+            Masuk ke Akun
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-white px-4">
-      <div className="w-full max-w-lg bg-white border border-red-100 rounded-2xl shadow-xl p-8">
-        <h1 className="text-2xl font-bold text-primary mb-6 text-center">
-          Lengkapi Pendaftaran Anda
-        </h1>
-        
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4 py-12">
+      <div className="max-w-xl w-full bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
+        <div className="text-center mb-8">
+          <Link href="/" className="inline-block mb-4">
+            <Image src="/logo.png" alt="Logo" width={120} height={40} className="mx-auto h-10 w-auto" priority />
+          </Link>
+          <h2 className="text-2xl font-bold text-gray-900">Daftar Akun Baru</h2>
+          <p className="text-sm text-gray-500 mt-1">Lengkapi data untuk kemudahan pengiriman pesanan</p>
+        </div>
+
         {error && (
-          <div className="bg-red-100 text-red-700 text-sm p-3 mb-4 rounded border border-red-200">
-            🛑 {error}
+          <div className="mb-6 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
+            {error}
           </div>
         )}
-        
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Email dan Password di atas */}
-          <div className="space-y-6">
-            <div>
-              <label className="block text-sm text-dark mb-1">Email</label>
-              <input
-                type="email"
-                name="email"
-                value={form.email}
-                onChange={handleChange}
-                required
-                placeholder="Contoh: example@email.com"
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
 
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm text-dark mb-1">Kata Sandi</label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  name="password"
-                  value={form.password}
-                  onChange={handleChange}
-                  required
-                  className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                >
-                  {showPassword ? '👁️' : '👁'}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm text-dark mb-1">Konfirmasi Kata Sandi</label>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                name="confirmPassword"
-                value={form.confirmPassword}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-          </div>
-
-          {/* Lainnya */}
-          <div className="space-y-6">
-            <div>
-              <label className="block text-sm text-dark mb-1">Nama Lengkap</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nama Lengkap *</label>
               <input
                 type="text"
                 name="name"
+                required
                 value={form.name}
                 onChange={handleChange}
-                required
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                placeholder="John Doe"
               />
             </div>
-
             <div>
-              <label className="block text-sm text-dark mb-1">Alamat Jalan</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nomor WhatsApp *</label>
               <input
-                type="text"
-                name="street"
-                value={form.street}
-                onChange={handleChange}
-                required
-                placeholder="Contoh: Jl. Melati No.9B"
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-
-            <AreaSelect label="Pilih Kecamatan / Kota" onSelect={handleAreaSelect} />
-
-            {form.area && (
-              <div className="grid grid-cols-2 gap-3 bg-gray-100 text-sm text-gray-700 border border-gray-300 p-3 rounded-md mt-2">
-                <div>
-                  <span className="block font-medium">Provinsi</span>
-                  <span>{form.area.province}</span>
-                </div>
-                <div>
-                  <span className="block font-medium">Kota/Kabupaten</span>
-                  <span>{form.area.city_name}</span>
-                </div>
-                <div>
-                  <span className="block font-medium">Kecamatan</span>
-                  <span>{form.area.name}</span>
-                </div>
-                <div>
-                  <span className="block font-medium">Kodepos</span>
-                  <span>{form.area.postal_code}</span>
-                </div>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm text-dark mb-1">No. HP / WhatsApp</label>
-              <input
-                type="text"
+                type="tel"
                 name="phone"
+                required
                 value={form.phone}
                 onChange={handleChange}
-                required
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                placeholder="08123456789"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+            <input
+              type="email"
+              name="email"
+              required
+              value={form.email}
+              onChange={handleChange}
+              className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+              placeholder="nama@email.com"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Alamat Lengkap / Jalan *</label>
+            <textarea
+              name="street"
+              required
+              rows={2}
+              value={form.street}
+              onChange={handleChange}
+              className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+              placeholder="Jl. Kenari No. 123, RT 01 / RW 02"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Area / Kecamatan / Kota *</label>
+            <AreaSelect onSelect={handleAreaSelect} value={form.area} />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                name="password"
+                required
+                value={form.password}
+                onChange={handleChange}
+                className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                placeholder="Minimal 6 karakter"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Konfirmasi Password *</label>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                name="confirmPassword"
+                required
+                value={form.confirmPassword}
+                onChange={handleChange}
+                className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                placeholder="Ulangi password"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="checkbox"
+              id="showPass"
+              checked={showPassword}
+              onChange={(e) => setShowPassword(e.target.checked)}
+              className="rounded text-red-600 focus:ring-red-500"
+            />
+            <label htmlFor="showPass" className="text-xs text-gray-600 cursor-pointer">
+              Tampilkan kata sandi
+            </label>
           </div>
 
           <button
             type="submit"
-            disabled={!form.name || !form.street || !form.phone || !form.area ||
-                    !form.email || !form.password || !form.confirmPassword}
-            className="w-full bg-primary text-white py-2.5 rounded-lg font-semibold hover:bg-red-700 transition disabled:opacity-70 disabled:cursor-not-allowed"
+            disabled={loading}
+            className="w-full mt-4 bg-red-600 hover:bg-red-700 text-white font-medium py-3 rounded-lg transition disabled:opacity-50 text-sm shadow-md"
           >
-            {loading ? 'Mendaftarkan...' : 'Daftar'}
+            {loading ? 'Mendaftarkan Akun...' : 'Daftar Sekarang'}
           </button>
         </form>
 
-        <p className="text-center text-sm text-gray-500 mt-6">
+        <p className="mt-6 text-center text-sm text-gray-500">
           Sudah punya akun?{' '}
-          <Link href="/login" className="text-primary hover:underline font-medium">
-            Masuk
+          <Link href="/login" className="text-red-600 hover:text-red-700 font-medium">
+            Masuk di sini
           </Link>
         </p>
       </div>

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { auth, firestore } from '@/utils/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { useAuth } from '@/context/AuthContext';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faUser } from '@fortawesome/free-solid-svg-icons';
 import Image from 'next/image';
@@ -10,41 +9,27 @@ const DEFAULT_LOGO = '/logo.png'; // gunakan file di /public
 
 const Footer = () => {
   const router = useRouter();
+  const { user } = useAuth();
   const [userId, setUserId] = useState(null);
   const [userPhoto, setUserPhoto] = useState(null);
   const [scrolling, setScrolling] = useState(false);
 
-  // Auth listener
+  // Sync auth & photo from Supabase AuthContext
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(u => {
-      if (u) setUserId(u.uid);
-      else {
-        setUserId(null);
-        setUserPhoto(null);
-      }
-    });
-    return () => unsub();
-  }, []);
-
-  // Photo listener
-  useEffect(() => {
-    if (!userId) return;
-    const unsub = onSnapshot(doc(firestore, 'users', userId), snap => {
-      if (snap.exists()) {
-        const d = snap.data();
-        setUserPhoto(
-          d.photoURL ||
-          d.avatar ||
-          d.profilePicture ||
-          d.profile_photo ||
-          null
-        );
-      } else {
-        setUserPhoto(null);
-      }
-    });
-    return () => unsub();
-  }, [userId]);
+    if (user) {
+      setUserId(user.id || user.uid);
+      setUserPhoto(
+        user.profile?.avatar ||
+        user.avatar ||
+        user.user_metadata?.avatar_url ||
+        user.photoURL ||
+        null
+      );
+    } else {
+      setUserId(null);
+      setUserPhoto(null);
+    }
+  }, [user]);
 
   // Scroll transparency handling
   useEffect(() => {

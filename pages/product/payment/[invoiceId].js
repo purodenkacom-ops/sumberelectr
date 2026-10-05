@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
-import { doc, getDoc, updateDoc, serverTimestamp, arrayUnion, arrayRemove, collection, getDocs, query, where, runTransaction, increment, setDoc } from 'firebase/firestore'; // (array ops optional)
 import { getCoordinates } from '@/utils/biteship';
-import { auth, firestore } from '@/utils/firebase'; // 1. Pastikan 'auth' di-import
-import { onAuthStateChanged } from 'firebase/auth'; // 1. Import onAuthStateChanged
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/utils/supabase';
 // Navbar and Footer intentionally omitted on payment page to provide a focused checkout flow
 import Image from 'next/image'; // 1. Pastikan Image di-import
 import Script from 'next/script';
@@ -123,9 +122,28 @@ function detectProvinceFromAddress(address='') {
   return '';
 }
 
+function normalizeInvoice(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    buyerId: row.buyerId ?? row.buyer_id,
+    buyerName: row.buyerName ?? row.buyer_name,
+    buyerEmail: row.buyerEmail ?? row.buyer_email,
+    buyerPhone: row.buyerPhone ?? row.buyer_phone,
+    shippingAddress: row.shippingAddress ?? row.shipping_address ?? {},
+    shippingSelection: row.shippingSelection ?? row.shipping_selection ?? null,
+    shippingCost: row.shippingCost ?? row.shipping_cost ?? 0,
+    discountAmount: row.discountAmount ?? row.discount_amount ?? 0,
+    voucherCode: row.voucherCode ?? row.voucher_code ?? '',
+    grandTotal: row.grandTotal ?? row.grand_total ?? 0,
+    paymentMethod: row.paymentMethod ?? row.payment_method ?? '',
+  };
+}
+
 export default function PaymentPage() {
   const router = useRouter();
   const { invoiceId } = router.query;
+  const { user: authUser, loading: authLoading } = useAuth();
 
   // 2. Tambahkan state untuk status autentikasi
   const [authReady, setAuthReady] = useState(false);
@@ -191,27 +209,14 @@ export default function PaymentPage() {
 
   // Fetch invoice & user
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        // Pengguna sudah login, ambil data lengkapnya dari Firestore
-        const userRef = doc(firestore, 'users', currentUser.uid);
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) {
-          setUser({ uid: currentUser.uid, ...userSnap.data() });
-        } else {
-          setUser(currentUser); // Fallback jika dokumen user belum ada
-        }
-      } else {
-        // Pengguna tidak login
-        setUser(null);
-      }
-      // Tandai bahwa proses pengecekan autentikasi sudah selesai
-      setAuthReady(true);
-    });
-
-    // Cleanup listener saat komponen di-unmount
-    return () => unsubscribe();
-  }, []);
+    if (authLoading) return;
+    if (authUser) {
+      setUser(authUser);
+    } else {
+      setUser(null);
+    }
+    setAuthReady(true);
+  }, [authUser, authLoading]);
 
   // 4. Modifikasi useEffect utama untuk bergantung pada 'authReady'
   useEffect(() => {
@@ -224,7 +229,7 @@ export default function PaymentPage() {
         const snap = await getDoc(ref);
 
         if (!snap.exists()) throw new Error('Invoice tidak ditemukan');
-        const inv = snap.data();
+        const inv = normalizeInvoice(snap.data());
         // Verifikasi kepemilikan invoice: jika invoice memiliki buyerId, maka harus cocok dengan user saat ini.
         if (inv.buyerId) {
           if (!user || inv.buyerId !== user.uid) {
@@ -239,7 +244,7 @@ export default function PaymentPage() {
           const r = await fetch(`/api/invoices/get?invoiceId=${encodeURIComponent(String(invoiceId))}`);
           const data = await r.json();
           if (!r.ok) throw new Error(data?.error || 'Gagal memuat invoice');
-          const inv = data;
+          const inv = normalizeInvoice(data);
           // Server returns full doc; for guests buyerId is null, so allow
           setInvoice(inv);
           setBuyerNote(inv.buyerNote || '');
@@ -262,7 +267,7 @@ export default function PaymentPage() {
 
   // Ambil alamat tujuan dari user/address
   const getDestinationAddress = () => {
-    return user?.address || invoice?.shippingAddress?.address || invoice?.buyerAddress || '';
+    return invoice?.shippingAddress?.address || user?.address || invoice?.buyerAddress || '';
   };
 
   // Fetch Biteship services via API
@@ -357,12 +362,18 @@ export default function PaymentPage() {
         // Fallback destination_area_id dari beberapa sumber jika field utama kosong
         const destinationAreaIdFallback = (
           invoice.destinationAreaId ||
+          invoice.destination_area_id ||
           invoice?.shippingAddress?.area_id ||
           invoice?.shippingAddress?.area?.id ||
           invoice?.shippingAddress?.area?.area_id ||
           user?.area_id ||
           null
         );
+
+        if (!destinationAreaIdFallback) {
+          setError('Area tujuan belum lengkap. Kembali ke keranjang dan lengkapi alamat pengiriman.');
+          return;
+        }
 
         const payload = {
           origin_area_id: process.env.NEXT_PUBLIC_BITESHIP_ORIGIN_AREA_ID,
@@ -589,13 +600,13 @@ export default function PaymentPage() {
   // Konfirmasi titik & refresh layanan
   const handleConfirmInstantPoint = async () => {
     setShowMap(false);
-    if (pickedCoord && invoice?.buyerId) {
+    if (pickedCoord && invoice?.buyer_id) {
       try {
-        await updateDoc(doc(firestore, 'users', invoice.buyerId), {
+        await supabase.from('users').update({
           instant_lat: pickedCoord.lat,
           instant_lng: pickedCoord.lng,
-          instantUpdatedAt: serverTimestamp()
-        });
+          instant_updated_at: new Date().toISOString()
+        }).eq('id', invoice.buyer_id);
         setUserInstantCoord(pickedCoord);
         setAutoUsingSavedInstant(true);
       } catch (e) {
@@ -619,50 +630,33 @@ export default function PaymentPage() {
 
   const handleNoteChange = async (e) => {
     setBuyerNote(e.target.value);
-    // Avoid client write for guest (prevent Firestore permission errors)
+    // Avoid client write for guest
     if (isGuestInvoice) return;
     try {
-      await updateDoc(doc(firestore, 'invoices', String(invoiceId)), {
-        buyerNote: e.target.value,
-      });
+      await supabase.from('invoices').update({
+        buyer_note: e.target.value,
+      }).eq('id', String(invoiceId));
     } catch (err) {
-      // ignore error for non-critical note update
+      // ignore
     }
   };
 
-  // Ambil gambar produk dari Firestore berdasarkan productId
+  // Ambil gambar produk dari item invoice, lalu fallback ke tabel products Supabase.
   useEffect(() => {
-    if (!invoice || !invoice.items) return;
+    if (!invoice?.items?.length) return;
     const fetchImages = async () => {
       const imagesMap = {};
-      await Promise.all(
-        invoice.items.map(async (item) => {
-          if (!item.productId) return;
-          try {
-            const prodRef = doc(firestore, 'products', String(item.productId));
-            const prodSnap = await getDoc(prodRef);
-            if (prodSnap.exists()) {
-              const prodData = prodSnap.data();
-              let imgUrl = '/no-image.png'; // 2. Ganti fallback ke gambar lokal
-              // Cari entry pertama non-empty di prodData.images
-              if (Array.isArray(prodData.images) && prodData.images.length > 0) {
-                const first = prodData.images.find(i => typeof i === 'string' && i.trim().length > 0);
-                if (first) imgUrl = first;
-                else if (prodData.image && typeof prodData.image === 'string' && prodData.image.trim().length > 0) imgUrl = prodData.image;
-              } else if (typeof prodData.images === 'string' && prodData.images) {
-                imgUrl = prodData.images;
-              } else if (prodData.image && typeof prodData.image === 'string' && prodData.image.trim().length > 0) {
-                imgUrl = prodData.image;
-              }
-              imagesMap[item.productId] = imgUrl;
-            } else {
-              imagesMap[item.productId] = '/no-image.png'; // 2. Ganti fallback ke gambar lokal
-            }
-          } catch {
-            imagesMap[item.productId] = '/no-image.png'; // 2. Ganti fallback ke gambar lokal
-          }
-        })
-      );
+      await Promise.all(invoice.items.map(async item => {
+        const productId = item.productId || item.product_id || item.id;
+        if (!productId) return;
+        const embedded = item.image || (Array.isArray(item.images) ? item.images.find(Boolean) : item.images);
+        if (embedded) {
+          imagesMap[productId] = embedded;
+          return;
+        }
+        const { data } = await supabase.from('products').select('images').eq('id', String(productId)).maybeSingle();
+        imagesMap[productId] = (Array.isArray(data?.images) ? data.images.find(Boolean) : data?.images) || '/no-image.png';
+      }));
       setProductImages(imagesMap);
     };
     fetchImages();
@@ -752,16 +746,15 @@ export default function PaymentPage() {
         
         console.log('[handleSaveShipping] API success!');
       } else {
-        // User terdaftar, update langsung via Firestore client
-        await updateDoc(doc(firestore, 'invoices', String(invoiceId)), {
-          shippingSelection: shippingSelectionData,
-          shippingCost: svc.price,
-          grandTotal: finalGrand,
+        // User terdaftar, update langsung via Supabase client
+        await supabase.from('invoices').update({
+          shipping_selection: shippingSelectionData,
+          shipping_cost: svc.price,
+          grand_total: finalGrand,
           status: newStatus,
-          updatedAt: serverTimestamp(),
-          // Reset Xendit link if any, so buyer must recreate payment with new total
-          'xendit.invoiceUrl': null,
-        });
+          updated_at: new Date().toISOString(),
+          xendit: { ...(invoice?.xendit || {}), invoiceUrl: null },
+        }).eq('id', String(invoiceId));
       }
 
       setInvoice(prev => ({
@@ -868,21 +861,19 @@ export default function PaymentPage() {
 
     const run = async () => {
       try {
-        const cartRef = doc(firestore, 'carts', invoice.cartId);
-        const snap = await getDoc(cartRef);
-        if (!snap.exists()) return;
-        const cartData = snap.data();
+        const { data: cartData } = await supabase.from('carts').select('items').eq('id', invoice.cart_id || invoice.cartId).single();
+        if (!cartData) return;
         const items = cartData.items || [];
-        const filtered = items.filter(it => it.pendingInvoiceId !== invoice.invoiceId);
+        const filtered = items.filter(it => it.pendingInvoiceId !== (invoice.invoice_id || invoice.invoiceId));
         if (filtered.length !== items.length) {
-          await updateDoc(cartRef, { items: filtered });
+          await supabase.from('carts').update({ items: filtered }).eq('id', invoice.cart_id || invoice.cartId);
         }
       } catch (e) {
         console.error('Gagal bersihkan cart setelah payment:', e);
       }
     };
     run();
-  }, [invoice?.status, invoice?.codOrderId]);
+  }, [invoice?.status, invoice?.cod_order_id, invoice?.codOrderId]);
 
   // Fetch voucher ketika invoice sudah ada (sekali saja)
   useEffect(() => {
@@ -891,12 +882,9 @@ export default function PaymentPage() {
     const loadVouchers = async () => {
       try {
         setVoucherLoading(true);
-        // Contoh: hanya voucher aktif
-        const qRef = query(collection(firestore, 'vouchers'), where('active', '==', true));
-        const snap = await getDocs(qRef);
+        const { data } = await supabase.from('vouchers').select('*').eq('active', true);
         if (cancelled) return;
-        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        setVoucherList(list);
+        setVoucherList(data || []);
       } catch (e) {
         console.warn('Fetch vouchers gagal:', e);
       } finally {
@@ -930,12 +918,12 @@ export default function PaymentPage() {
     if (!v.active) { setVoucherError('Voucher nonaktif.'); return; }
 
     const now = new Date();
-    const start = v.startDate?.seconds
+    const start = v.start_date ? new Date(v.start_date) : (v.startDate?.seconds
       ? new Date(v.startDate.seconds * 1000)
-      : (v.startDate ? new Date(v.startDate) : null);
-    const end = v.endDate?.seconds
+      : (v.startDate ? new Date(v.startDate) : null));
+    const end = v.end_date ? new Date(v.end_date) : (v.endDate?.seconds
       ? new Date(v.endDate.seconds * 1000)
-      : (v.endDate ? new Date(v.endDate) : (v.expiresAt?.seconds ? new Date(v.expiresAt.seconds*1000) : null));
+      : (v.endDate ? new Date(v.endDate) : (v.expires_at ? new Date(v.expires_at) : (v.expiresAt?.seconds ? new Date(v.expiresAt.seconds*1000) : null))));
 
     if ((start && now < start) || (end && now > end)) {
       setVoucherError('Voucher di luar periode.');
@@ -1003,14 +991,14 @@ export default function PaymentPage() {
       const newGrand = baseAfterVoucher + shippingUsed + codFeeNow + transferFeeNow;
 
       if (!isGuestInvoice) {
-        await updateDoc(doc(firestore, 'invoices', String(invoiceId)), {
-          voucherCode: v.code || v.id,
-          voucherDiscount: discount,
-          grandTotal: newGrand,
-          codFee: codFeeNow || null,
-          transferFee: transferFeeNow || null,
-          updatedAt: serverTimestamp()
-        });
+        await supabase.from('invoices').update({
+          voucher_code: v.code || v.id,
+          voucher_discount: discount,
+          grand_total: newGrand,
+          cod_fee: codFeeNow || null,
+          transfer_fee: transferFeeNow || null,
+          updated_at: new Date().toISOString()
+        }).eq('id', String(invoiceId));
       }
 
       // Sinkronkan invoice state lokal
@@ -1070,13 +1058,13 @@ export default function PaymentPage() {
   const openClaimModal = async () => {
     setClaimError('');
     setClaimModalOpen(true);
-    if (!user?.uid) return;
+    if (!user?.uid && !user?.id) return;
+    const uid = user.id || user.uid;
     try {
       setClaimLoading(true);
-      const qRef = query(collection(firestore, 'voucher_claims'), where('buyerId', '==', user.uid));
-      const snap = await getDocs(qRef);
+      const { data } = await supabase.from('voucher_claims').select('code').eq('buyer_id', uid);
       const map = {};
-      snap.forEach(d => { const c = (d.data().code || '').trim().toUpperCase(); if (c) map[c] = true; });
+      (data || []).forEach(r => { const c = (r.code || '').trim().toUpperCase(); if (c) map[c] = true; });
       setClaimedCodesMap(map);
     } catch (e) {
       setClaimError(e.message || 'Gagal memuat klaim.');
@@ -1086,35 +1074,30 @@ export default function PaymentPage() {
   };
 
   const claimGeneralVoucher = async (voucher) => {
-    if (!user?.uid) { alert('Harus login.'); return; }
+    if (!user?.uid && !user?.id) { alert('Harus login.'); return; }
+    const uid = user.id || user.uid;
     const code = (voucher.code || '').trim().toUpperCase();
     if (!code) return;
     setClaimError('');
     try {
       setClaimLoading(true);
-      const claimId = `${user.uid}_${code}`;
-      const claimRef = doc(firestore, 'voucher_claims', claimId);
-      const voucherRef = doc(firestore, 'vouchers', voucher.id || code);
-      await runTransaction(firestore, async (tx) => {
-        const claimSnap = await tx.get(claimRef);
-        if (claimSnap.exists()) {
-          throw new Error('Anda sudah mengklaim voucher ini.');
-        }
-        const vSnap = await tx.get(voucherRef);
-        if (!vSnap.exists()) throw new Error('Voucher tidak ditemukan.');
-        const v = vSnap.data();
-        if (!isVoucherActiveNow(v)) throw new Error('Voucher tidak aktif.');
-        const total = Number(v.totalQty ?? 0);
-        const claimed = Number(v.claimedCount ?? 0);
-        if (total > 0 && claimed >= total) throw new Error('Kuota habis.');
-        tx.set(claimRef, {
-          id: claimId,
-          code,
-          buyerId: user.uid,
-          createdAt: serverTimestamp()
-        });
-        tx.update(voucherRef, { claimedCount: increment(1) });
+      const claimId = `${uid}_${code}`;
+      // Check duplicate
+      const { data: existing } = await supabase.from('voucher_claims').select('id').eq('id', claimId).maybeSingle();
+      if (existing) throw new Error('Anda sudah mengklaim voucher ini.');
+      // Check voucher
+      const { data: vRow } = await supabase.from('vouchers').select('*').eq('id', voucher.id || code).single();
+      if (!vRow) throw new Error('Voucher tidak ditemukan.');
+      if (!isVoucherActiveNow(vRow)) throw new Error('Voucher tidak aktif.');
+      const total = Number(vRow.total_qty ?? vRow.totalQty ?? 0);
+      const claimed = Number(vRow.claimed_count ?? vRow.claimedCount ?? 0);
+      if (total > 0 && claimed >= total) throw new Error('Kuota habis.');
+      // Insert claim & update counter
+      const { error: claimErr } = await supabase.from('voucher_claims').insert({
+        id: claimId, code, buyer_id: uid, created_at: new Date().toISOString()
       });
+      if (claimErr) throw new Error(claimErr.message);
+      await supabase.from('vouchers').update({ claimed_count: claimed + 1 }).eq('id', voucher.id || code);
       setClaimedCodesMap(prev => ({ ...prev, [code]: true }));
       setVoucherCode(code);
       alert('Voucher berhasil diklaim. Kode telah diisi.');
@@ -1169,14 +1152,15 @@ export default function PaymentPage() {
     // Sinkronkan nilai terkini ke invoice sebelum membuat pembayaran
     try {
       if (!isGuestInvoice) {
-        await updateDoc(doc(firestore,'invoices',String(invoiceId)),{
-          voucherDiscount: discountToApply,
-          grandTotal: amountNow,
-          paymentMethod: 'midtrans',
+        await supabase.from('invoices').update({
+          voucher_discount: discountToApply,
+          grand_total: amountNow,
+          payment_method: 'midtrans',
           status: invoice.status === 'draft' ? 'waiting' : invoice.status,
-          updatedAt: serverTimestamp(),
-          transferFee: TRANSFER_FEE,
-        });
+          updated_at: new Date().toISOString(),
+          transfer_fee: TRANSFER_FEE,
+        }).eq('id', String(invoiceId));
+
       }
       setInvoice(prev=> prev ? {
         ...prev,
@@ -1381,7 +1365,7 @@ export default function PaymentPage() {
                   <div className="flex items-center gap-2">
                     {/* 3. Ganti <img> dengan <Image> */}
                     <Image
-                      src={productImages[item.productId] || '/no-image.png'}
+                      src={productImages[item.productId || item.product_id || item.id] || item.image || '/no-image.png'}
                       alt={item.name}
                       width={32}
                       height={32}
@@ -1404,7 +1388,7 @@ export default function PaymentPage() {
                       </span>
                     </div>
                   </div>
-                  <span className="font-semibold text-orange-700">Rp {(item.price * item.quantity).toLocaleString('id-ID')}</span>
+                  <span className="font-semibold text-orange-700">Rp {(Number(item.price || 0) * Number(item.quantity || 1)).toLocaleString('id-ID')}</span>
                 </div>
               ))}
           </div>
@@ -1427,29 +1411,8 @@ export default function PaymentPage() {
         </section>
         {/* Shipping Option */}
         <section className="bg-white rounded-lg shadow p-4 mb-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-semibold text-sm">Opsi Pengiriman</div>
-            {!!shippingSelection && invoice.status !== 'paid' && invoice.status !== 'completed' && (
-              !editingShipping ? (
-                <button
-                  type="button"
-                  className="text-[11px] text-primary underline"
-                  onClick={()=>{
-                    setEditingShipping(true);
-                    setNeedInstantLocation(false);
-                    setInstantError('');
-                  }}
-                >Ubah Pengiriman</button>
-              ) : (
-                <button
-                  type="button"
-                  className="text-[11px] text-gray-600 underline"
-                  onClick={()=> setEditingShipping(false)}
-                >Batal</button>
-              )
-            )}
-          </div>
-          {!shippingSelection || editingShipping ? (
+          <div className="mb-2 font-semibold text-sm">Opsi Pengiriman</div>
+          {invoice.status !== 'paid' && invoice.status !== 'completed' ? (
             <>
               <div className="mb-2">
                 <select
@@ -1512,7 +1475,7 @@ export default function PaymentPage() {
                       const dur = svc.duration || svc.etd || '';
                       return (
                         <option key={code} value={code}>
-                          {name} {dur && `(${dur})`} - Rp {svc.price.toLocaleString('id-ID')}
+                          {name} {dur && `(${dur})`} - Rp {Number(svc.price || 0).toLocaleString('id-ID')}
                         </option>
                       );
                     })}
@@ -1532,7 +1495,7 @@ export default function PaymentPage() {
           ) : (
             <div className="flex justify-between items-center text-xs">
               <span>{shippingSelection?.courier?.toUpperCase?.() || '-'} - {shippingSelection?.service_name || '-'}</span>
-              <span className="font-semibold">Rp {shippingSelection.price.toLocaleString('id-ID')}</span>
+              <span className="font-semibold">Rp {Number(shippingSelection.price ?? shippingSelection.cost ?? 0).toLocaleString('id-ID')}</span>
             </div>
           )}
           {shippingSelection && (

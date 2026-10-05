@@ -5,13 +5,20 @@ const debouncedFetch = debounce((fetchAreas, q) => {
   fetchAreas(q);
 }, 400);
 
-const AreaSelect = ({ onSelect, label }) => {
+const AreaSelect = ({ onSelect, label, value = null }) => {
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [dropdownDirection, setDropdownDirection] = useState('bottom');
   const inputRef = useRef();
   const hasSelected = useRef(false);
+
+  useEffect(() => {
+    if (!value) return;
+    const text = [value.name, value.city_name, value.province].filter(Boolean).join(', ');
+    setQuery(text);
+    hasSelected.current = true;
+  }, [value]);
 
   const fetchAreas = async (q) => {
     if (!q || hasSelected.current) return;

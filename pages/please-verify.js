@@ -1,17 +1,29 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
-import { auth } from '@/utils/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { firestore } from '@/utils/firebase';
-import { sendEmailVerification } from 'firebase/auth';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/utils/supabase';
 
 export default function PleaseVerify() {
   const router = useRouter();
-  const emailQS = router.query.email || auth.currentUser?.email || '';
-  const [status, setStatus] = useState(router.query.sent ? 'Email verifikasi telah dikirim.' : '');
+  const { user } = useAuth();
+  const [email, setEmail] = useState('');
+  const [status, setStatus] = useState('');
   const [cooldown, setCooldown] = useState(0);
   const [checking, setChecking] = useState(false);
   const [resendCount, setResendCount] = useState(0);
+
+  useEffect(() => {
+    const emailFromQuery = router.query.email;
+    if (emailFromQuery) {
+      setEmail(emailFromQuery);
+    } else if (user?.email) {
+      setEmail(user.email);
+    }
+
+    if (router.query.sent) {
+      setStatus('Email verifikasi telah dikirim.');
+    }
+  }, [router.query, user]);
 
   // Restore state dari localStorage saat mount
   useEffect(() => {
@@ -22,18 +34,17 @@ export default function PleaseVerify() {
         const meta = JSON.parse(raw);
         if (meta && typeof meta === 'object') {
           setResendCount(meta.count || 0);
-          // Hitung sisa cooldown jika masih berlaku
-            if (meta.last && meta.cooldown) {
-              const elapsed = Math.floor((Date.now() - meta.last) / 1000);
-              const remain = meta.cooldown - elapsed;
-              if (remain > 0) setCooldown(remain);
-            }
+          if (meta.last && meta.cooldown) {
+            const elapsed = Math.floor((Date.now() - meta.last) / 1000);
+            const remain = meta.cooldown - elapsed;
+            if (remain > 0) setCooldown(remain);
+          }
         }
       }
     } catch (_) {}
   }, []);
 
-  // Countdown cooldown (lebih aman pakai interval)
+  // Countdown cooldown
   useEffect(() => {
     if (cooldown <= 0) return;
     const iv = setInterval(() => {
@@ -52,93 +63,94 @@ export default function PleaseVerify() {
     } catch (_) {}
   };
 
-  const computeNextCooldown = (nextCount) => {
-    if (nextCount === 1) return 30;      // resend pertama
-    if (nextCount === 2) return 60;      // resend kedua
-    if (nextCount === 3) return 300;     // resend ketiga
-    if (nextCount > 5) return 3600;      // lebih dari 5
-    return 300;                          // ke-4 & ke-5
-  };
-
-  const resend = async () => {
-    if (!auth.currentUser || auth.currentUser.emailVerified) return;
+  const handleResend = async () => {
     if (cooldown > 0) return;
+
+    const targetEmail = email || user?.email;
+    if (!targetEmail) {
+      setStatus('Silakan login ulang untuk mengirim ulang verifikasi.');
+      return;
+    }
+
     const nextCount = resendCount + 1;
-    const nextCd = computeNextCooldown(nextCount);
+    const baseCd = 60;
+    const cdSeconds = nextCount >= 3 ? baseCd * nextCount : baseCd;
+
     try {
-      await sendEmailVerification(auth.currentUser);
-      setStatus(`Email verifikasi dikirim ulang (percobaan ${nextCount}).`);
+      setStatus('Mengirim...');
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: targetEmail
+      });
+      if (error) throw error;
+
       setResendCount(nextCount);
-      setCooldown(nextCd);
-      persistMeta(nextCount, nextCd);
-    } catch (e) {
-      setStatus('Gagal kirim ulang: ' + (e.message || 'error'));
+      setCooldown(cdSeconds);
+      persistMeta(nextCount, cdSeconds);
+      setStatus('Email verifikasi telah dikirim! Cek inbox (dan folder Spam).');
+    } catch (err) {
+      setStatus('Gagal mengirim: ' + (err.message || 'Error tidak diketahui'));
     }
   };
 
-  const checkVerified = async () => {
-    if (!auth.currentUser) return;
+  const handleCheckVerified = async () => {
     setChecking(true);
-    await auth.currentUser.reload();
-    if (auth.currentUser.emailVerified) {
-      try {
-        const ref = doc(firestore, 'users', auth.currentUser.uid);
-        const snap = await getDoc(ref);
-        if (snap.exists() && snap.data().emailVerified === false) {
-          await updateDoc(ref, { emailVerified: true });
-        }
-      } catch (_) {}
-      setStatus('Email sudah terverifikasi. Mengarahkan...');
-      router.replace('/account');
-    } else {
-      setStatus('Belum terverifikasi. Cek inbox / spam.');
-    }
-    setChecking(false);
-  };
-
-  const backToLogin = async () => {
     try {
-      if (auth.currentUser && !auth.currentUser.emailVerified) {
-        await auth.signOut();
+      const { data: { session } } = await supabase.auth.getSession();
+      const u = session?.user;
+      if (u?.email_confirmed_at) {
+        router.push('/account');
+      } else {
+        setStatus('Email belum diverifikasi. Cek inbox Anda.');
       }
-    } catch (_) {}
-    router.push('/login');
+    } catch (e) {
+      setStatus('Gagal cek status: ' + e.message);
+    } finally {
+      setChecking(false);
+    }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-white px-4">
-      <div className="max-w-lg w-full text-center border border-red-100 shadow-xl rounded-2xl p-8">
-        <h1 className="text-2xl font-bold text-primary mb-4">Verifikasi Email Anda</h1>
-        <p className="text-gray-700 mb-4">
-          Link verifikasi telah dikirim ke <strong>{emailQS}</strong>. Silakan buka email dan klik link verifikasi.
-        </p>
-        <p className="text-sm text-gray-500 mb-6">
-          Tidak menerima email? Periksa folder spam atau kirim ulang (batas eskalasi waktu berlaku).
-        </p>
-
-        {status && <div className="text-sm mb-4 text-primary">{status}</div>}
-
-        <div className="text-xs text-gray-500 mb-3">
-          Percobaan kirim ulang: {resendCount} {resendCount > 5 && '(dibatasi, tunggu 1 jam)'}
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4">
+      <div className="bg-white rounded-xl shadow-lg p-8 max-w-md w-full text-center">
+        <div className="mb-4">
+          <svg className="w-16 h-16 mx-auto text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
         </div>
+        <h1 className="text-xl font-bold text-gray-800 mb-2">Verifikasi Email Anda</h1>
+        <p className="text-gray-500 text-sm mb-4">
+          Kami mengirimkan link verifikasi ke{' '}
+          <span className="font-semibold text-gray-700">{email || 'email Anda'}</span>.
+          Klik link di email untuk mengaktifkan akun.
+        </p>
 
-        <div className="flex flex-col gap-3">
+        {status && (
+          <div className={`mb-4 text-sm rounded-lg px-4 py-2 ${status.includes('Gagal') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-700'}`}>
+            {status}
+          </div>
+        )}
+
+        <div className="space-y-3">
           <button
-            onClick={resend}
+            onClick={handleResend}
             disabled={cooldown > 0}
-            className="bg-primary text-white px-5 py-2.5 rounded-lg font-semibold disabled:opacity-60"
+            className="w-full px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
           >
-            {cooldown > 0 ? `Tunggu ${cooldown}s` : 'Kirim Ulang Email'}
+            {cooldown > 0 ? `Kirim ulang (${cooldown}s)` : 'Kirim Ulang Email'}
           </button>
+
           <button
-            onClick={checkVerified}
-            className="border border-primary text-primary px-5 py-2.5 rounded-lg font-semibold hover:bg-primary/5"
+            onClick={handleCheckVerified}
+            disabled={checking}
+            className="w-full px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 transition"
           >
             {checking ? 'Memeriksa...' : 'Saya Sudah Verifikasi'}
           </button>
+
           <button
-            onClick={backToLogin}
-            className="text-sm text-gray-500 underline mt-2"
+            onClick={() => router.push('/login')}
+            className="w-full px-4 py-2 text-sm text-gray-400 hover:text-gray-600 transition"
           >
             Kembali ke Login
           </button>

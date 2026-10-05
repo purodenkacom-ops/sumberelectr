@@ -1,16 +1,24 @@
 // /hooks/useStorage.js
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { useState } from "react";
-import { app } from "../utils/firebase"; // pastikan app Firebase sudah diinisialisasi
+import { getFirebaseApp } from "../utils/firebase";
 
 export function useStorage() {
-  const storage = getStorage(app);
   const [uploading, setUploading] = useState(false);
   const [url, setUrl] = useState(null);
+
+  const getStorageInstance = () => {
+    const app = getFirebaseApp();
+    if (!app) {
+      throw new Error('Firebase app not initialized - check environment variables');
+    }
+    return getStorage(app);
+  };
 
   const uploadFile = async (file, path) => {
     setUploading(true);
     try {
+      const storage = getStorageInstance();
       const fileRef = ref(storage, path);
       await uploadBytes(fileRef, file);
       const downloadUrl = await getDownloadURL(fileRef);
@@ -23,8 +31,7 @@ export function useStorage() {
 
   const deleteFile = async (fileUrl) => {
     try {
-      // Create a reference to the file to delete
-      // We can use refFromURL or just ref(storage, fileUrl) since Firebase storage supports HTTPS URLs in ref()
+      const storage = getStorageInstance();
       const fileRef = ref(storage, fileUrl);
       await deleteObject(fileRef);
       return true;

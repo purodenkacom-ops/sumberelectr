@@ -1,5 +1,4 @@
-import { adminDb } from '@/utils/firebaseAdmin';
-import { FieldValue } from 'firebase-admin/firestore'; // <-- tambah
+import { supabaseAdmin } from '@/utils/supabaseAdmin';
 import fetch from 'node-fetch';
 import { sendDeliveryStatusEmail } from '@/utils/mailer';
 
@@ -8,19 +7,22 @@ export default async function handler(req, res) {
     const { invoiceId, biteshipId } = req.query;
 
     let biteshipOrderId = biteshipId || null;
-    let invoiceRef = null;
     let inv = null;
+
     if (invoiceId) {
-      invoiceRef = adminDb.collection('invoices').doc(String(invoiceId));
-      const snap = await invoiceRef.get();
-      if (snap.exists) {
-        inv = { id: snap.id, ...snap.data() };
-        // fallback id
+      const { data: row } = await supabaseAdmin
+        .from('invoices')
+        .select('*')
+        .eq('id', String(invoiceId))
+        .single();
+      if (row) {
+        inv = row;
         biteshipOrderId =
           biteshipOrderId ||
-          inv?.biteshipOrderId ||
-          inv?.trackingOrderId ||
-          inv?.codOrderId ||
+          inv?.biteship?.id ||
+          inv?.biteship_order_id ||
+          inv?.tracking_order_id ||
+          inv?.cod_order_id ||
           inv?.extra?.id ||
           null;
       }
@@ -30,7 +32,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing Biteship order id' });
     }
 
-    // Panggil Biteship Retrieve Order
     const upstream = await fetch(`https://api.biteship.com/v1/orders/${encodeURIComponent(biteshipOrderId)}`, {
       headers: { Authorization: `Bearer ${process.env.BITESHIP_API_KEY || process.env.NEXT_PUBLIC_BITESHIP_API_KEY}` }
     });
@@ -40,16 +41,18 @@ export default async function handler(req, res) {
       return res.status(upstream.status || 500).json({ error: data.error || 'Retrieve failed', detail: data });
     }
 
-    // Simpan ke invoice (jika ada)
-    if (invoiceRef && data) {
-      const updates = {
-        updatedAt: FieldValue.serverTimestamp(), // <-- perbaikan
-        'extra.id': data.id || biteshipOrderId,
-        biteshipRaw: data,
-        biteshipStatus: data.status || data?.courier?.status || inv?.biteshipStatus || null,
-        waybillId: data?.courier?.waybill_id || inv?.waybillId || null
-      };
-      await invoiceRef.set(updates, { merge: true });
+    if (inv && invoiceId && data) {
+      const { error: updateErr } = await supabaseAdmin
+        .from('invoices')
+        .update({
+          updated_at: new Date().toISOString(),
+          extra: { ...(inv.extra || {}), id: data.id || biteshipOrderId },
+          biteship_raw: data,
+          biteship_status: data.status || data?.courier?.status || inv?.biteship_status || null,
+          waybill_id: data?.courier?.waybill_id || inv?.waybill_id || null
+        })
+        .eq('id', String(invoiceId));
+      if (updateErr) console.warn('retrieve-order update warn:', updateErr.message);
     }
 
     return res.status(200).json({

@@ -1,23 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Navbar from '@/components/Navbar';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/utils/supabase';
 
-import { auth, firestore, signOut } from '@/utils/firebase';
-import {
-  collection,
-  where,
-  query,
-  onSnapshot,
-  doc,
-  getDoc,
-  updateDoc,
-  deleteDoc,
-  serverTimestamp,
-  getDocs,
-  addDoc,
-  setDoc,
-  runTransaction
-} from 'firebase/firestore';
+// Firebase fully removed - all queries migrated to Supabase
+
 import { FaTruck, FaBoxOpen, FaMoneyCheckAlt, FaCheckCircle, FaMotorcycle } from 'react-icons/fa'; // sudah ada
 import Image from 'next/image';
 import AreaSelect from '@/components/AreaSelect';
@@ -198,27 +186,26 @@ export default function BuyerDashboard() {
   const [addrSaving, setAddrSaving] = useState(false);
   const [addrError, setAddrError] = useState('');
 
-  // Auth listener
+  const { user, logout, loading: authLoading } = useAuth();
+
+  // Auth listener via AuthContext (Supabase)
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(u => {
-      setAuthReady(true);
-      if (u) {
-        setUserId(u.uid);
-      } else {
-        setUserId(null);
-        router.replace('/login');
-      }
-    });
-    return () => unsub();
-  }, [router]);
+    if (authLoading) return;
+    setAuthReady(true);
+    if (user) {
+      setUserId(user.id || user.uid);
+      setUserProfile(user);
+    } else {
+      setUserId(null);
+      router.replace('/login');
+    }
+  }, [user, authLoading, router]);
 
   // Ambil profil
   const loadProfile = useCallback(async (uid) => {
     try {
-      const ref = doc(firestore, 'users', uid);
-      const snap = await getDoc(ref);
-      if (snap.exists()) setUserProfile({ id: snap.id, ...snap.data() });
-      else setUserProfile(null);
+      const { data } = await supabase.from('users').select('*').eq('id', uid).single();
+      setUserProfile(data || null);
     } catch (e) {
       console.warn('User profile fetch error:', e.message);
     }
@@ -231,31 +218,16 @@ export default function BuyerDashboard() {
   // Realtime invoices by buyerId
   useEffect(() => {
     if (!authReady) return;
-    const uid = auth.currentUser?.uid;
-    if (!uid || !userId || uid !== userId) return;
+    if (!userId) return;
 
     setLoadingInvoices(true);
     setErrorMsg(null);
-    const qRef = query(
-      collection(firestore, 'invoices'),
-      where('buyerId', '==', userId)
-    );
-
-    const unsub = onSnapshot(qRef, snap => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setAllInvoices(list);
-      setLoadingInvoices(false);
-    }, err => {
-      setErrorMsg(
-        err.code === 'permission-denied'
-          ? 'Tidak diizinkan membaca invoices.'
-          : err.message
-      );
-      setAllInvoices([]);
-      setLoadingInvoices(false);
-    });
-
-    return () => unsub();
+    supabase.from('invoices').select('*').eq('buyer_id', userId).order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) setErrorMsg(error.message);
+        else setAllInvoices(data || []);
+        setLoadingInvoices(false);
+      });
   }, [authReady, userId]);
 
   // Ganti useEffect hitung counts & filter
@@ -306,12 +278,12 @@ export default function BuyerDashboard() {
   // (Opsional) helper buat notifikasi admin
   async function pushAdminCancellationNotif(invId, reason, uid) {
     try {
-      await addDoc(collection(firestore, 'admin_notifications'), {
+      await supabase.from('admin_notifications').insert({
         type: 'cancellation_request',
-        invoiceId: invId,
+        invoice_id: invId,
         reason,
-        userId: uid || null,
-        createdAt: serverTimestamp(),
+        user_id: uid || null,
+        created_at: new Date().toISOString(),
         read: false
       });
     } catch (e) {
@@ -330,32 +302,21 @@ export default function BuyerDashboard() {
     setCancelSubmitting(true);
     setCancelError('');
     try {
-      const ref = doc(firestore, 'invoices', cancelTarget.id);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) {
+      const { data: invData, error: invErr } = await supabase.from('invoices').select('*').eq('id', cancelTarget.id).single();
+      if (invErr || !invData) {
         setCancelError('Invoice tidak ditemukan (sudah dihapus?).');
         setCancelSubmitting(false);
         return;
       }
 
       const payload = {
-        previousStatus: snap.data().status || null,
+        previous_status: invData.status || null,
         status: 'cancellation_requested',
-        cancellationReason: reason,
-        cancellationRequestedAt: serverTimestamp()
+        cancellation_reason: reason,
+        cancellation_requested_at: new Date().toISOString()
       };
 
-      try {
-        await updateDoc(ref, payload);
-      } catch (e) {
-        // Jika karena not-found atau rules granuler, coba setDoc merge
-        if (e.code === 'not-found') {
-          await setDoc(ref, payload, { merge: true });
-        } else {
-          console.error('updateDoc error:', e);
-          throw e;
-        }
-      }
+      await supabase.from('invoices').update(payload).eq('id', cancelTarget.id);
 
       // Notifikasi admin
       await pushAdminCancellationNotif(cancelTarget.id, reason, userId);
@@ -372,7 +333,7 @@ export default function BuyerDashboard() {
   const deleteInvoice = async (inv) => {
     if (!confirm('Hapus invoice ini? Tindakan tidak dapat dibatalkan.')) return;
     try {
-      await deleteDoc(doc(firestore, 'invoices', inv.id));
+      await supabase.from('invoices').delete().eq('id', inv.id);
     } catch (e) {
       alert('Gagal menghapus: ' + e.message);
     }
@@ -394,26 +355,13 @@ export default function BuyerDashboard() {
   const fetchProductImage = useCallback(async (productId) => {
     if (!productId || productImages[productId]) return;
     try {
-      const ref = doc(firestore, 'products', productId);
-      const snap = await getDoc(ref);
-      if (snap.exists()) {
-        const data = snap.data() || {};
-        // Pick the first non-empty image from arrays (supports Cloudinary at index 4,5,6, etc.)
+      const { data: pd } = await supabase.from('products').select('images,image').eq('id', productId).single();
+      if (pd) {
         let best = '';
-        const arr = Array.isArray(data.images) ? data.images : [];
-        for (const v of arr) {
-          if (typeof v === 'string' && v.trim()) { best = v; break; }
-        }
-        if (!best && typeof data.image === 'string' && data.image.trim()) best = data.image;
-        // Optional: support alternative fields if exist
-        if (!best && Array.isArray(data.gallery)) {
-          const g = data.gallery.find((v) => typeof v === 'string' && v.trim());
-          if (g) best = g;
-        }
-        setProductImages(prev => ({
-          ...prev,
-          [productId]: best || '/no-image.png'
-        }));
+        const arr = Array.isArray(pd.images) ? pd.images : [];
+        for (const v of arr) { if (typeof v === 'string' && v.trim()) { best = v; break; } }
+        if (!best && typeof pd.image === 'string' && pd.image.trim()) best = pd.image;
+        setProductImages(prev => ({ ...prev, [productId]: best || '/no-image.png' }));
       } else {
         setProductImages(prev => ({
           ...prev,
@@ -447,14 +395,10 @@ export default function BuyerDashboard() {
       return;
     }
     const q = query(
-      collection(firestore, 'invoices'),
-      where('buyerId', '==', buyerId),
-      where('status', '==', 'completed')
     );
     try {
-      const snap = await getDocs(q);
-      const hasil = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setHistoryInvoices(hasil);
+      const { data } = await supabase.from('invoices').select('*').eq('buyer_id', buyerId).eq('status', 'completed');
+      setHistoryInvoices(data || []);
     } catch (e) {
       setHistoryInvoices([]);
     }
@@ -480,17 +424,9 @@ export default function BuyerDashboard() {
     try {
       const buyerId = userProfile?.id || userId;
       if (!buyerId) return;
-      const qRef = query(
-        collection(firestore, 'product_reviews'),
-        where('buyerId', '==', buyerId),
-        where('invoiceId', '==', inv.id)
-      );
-      const snap = await getDocs(qRef);
+      const { data: revData } = await supabase.from('product_reviews').select('*').eq('buyer_id', buyerId).eq('invoice_id', inv.id);
       const existMap = {};
-      snap.forEach(d => {
-        const r = d.data();
-        if (r.productId) existMap[String(r.productId)] = r;
-      });
+      (revData || []).forEach(r => { if (r.product_id) existMap[String(r.product_id)] = r; });
       setReviewExisting(existMap);
       // Pre-fill form with existing (read-only will be enforced in UI)
       setReviewForm(prev => {
@@ -534,23 +470,19 @@ export default function BuyerDashboard() {
       const buyerId = userProfile?.id || userId;
       const buyerName = userProfile?.name || userProfile?.buyerName || reviewInvoice.buyerName || 'Pengguna';
       const reviewId = `${buyerId}_${reviewInvoice.id}_${pid}`;
-      const ref = doc(firestore, 'product_reviews', reviewId);
-      await runTransaction(firestore, async (tx) => {
-        const snap = await tx.get(ref);
-        if (snap.exists()) {
-          throw new Error('Ulasan untuk produk ini sudah pernah dikirim.');
-        }
-        tx.set(ref, {
-          id: reviewId,
-          productId: pid,
-          invoiceId: reviewInvoice.id,
-          buyerId,
-          buyerName,
-          rating,
-          comment,
-          createdAt: serverTimestamp()
-        });
+      const { data: existing } = await supabase.from('product_reviews').select('id').eq('id', reviewId).maybeSingle();
+      if (existing) throw new Error('Ulasan untuk produk ini sudah pernah dikirim.');
+      const { error: revErr } = await supabase.from('product_reviews').insert({
+        id: reviewId,
+        product_id: pid,
+        invoice_id: reviewInvoice.id,
+        buyer_id: buyerId,
+        buyer_name: buyerName,
+        rating,
+        comment,
+        created_at: new Date().toISOString()
       });
+      if (revErr) throw new Error(revErr.message);
       // Lock this item
       setReviewExisting(prev => ({
         ...prev,
@@ -574,10 +506,7 @@ export default function BuyerDashboard() {
       return;
     }
     try {
-      await updateDoc(doc(firestore, 'invoices', detailInvoice.id), {
-        status: 'completed',
-        completedAt: serverTimestamp()
-      });
+      await supabase.from('invoices').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', detailInvoice.id);
       // Update koleksi global
       setAllInvoices(prev =>
         prev.map(inv =>
@@ -669,11 +598,9 @@ export default function BuyerDashboard() {
               <button
                 onClick={async () => {
                   try {
-                    await signOut(auth);
-                    router.replace('/');
+                    await logout();
                   } catch (e) {
                     console.error('Logout error', e);
-                    alert('Gagal logout: ' + (e.message || e));
                   }
                 }}
                 className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full font-medium"
@@ -974,7 +901,7 @@ export default function BuyerDashboard() {
                 <input className="w-full px-3 py-2 border rounded" value={addrStreet} onChange={e => setAddrStreet(e.target.value)} placeholder="Contoh: Jl. Melati No.9B" />
               </div>
 
-              <AreaSelect label="Pilih Kecamatan / Kota" onSelect={(area) => setAddrArea(area)} />
+              <AreaSelect value={addrArea} label="Pilih Kecamatan / Kota" onSelect={(area) => setAddrArea(area)} />
 
               {addrArea && (
                 <div className="text-xs bg-gray-50 p-3 rounded border text-gray-700">
@@ -994,11 +921,11 @@ export default function BuyerDashboard() {
                   if (!addrStreet || !addrArea) { setAddrError('Lengkapi alamat dan area.'); return; }
                   setAddrSaving(true);
                   try {
-                    const userRef = doc(firestore, 'users', userId);
+                    // save address to Supabase users table
                     const areaId = addrArea.id ? String(addrArea.id) + 'IDZ' + (addrArea.postal_code || '') : '';
-                    const areaNoId = { ...addrArea }; delete areaNoId.id;
                     const addressStr = [addrStreet, addrArea.name, addrArea.city_name, addrArea.province, addrArea.postal_code].filter(Boolean).join(', ');
-                    await setDoc(userRef, {
+                    const profile = {
+                      ...(userProfile?.profile || {}),
                       street: addrStreet,
                       area_id: areaId,
                       province: addrArea.province || '',
@@ -1006,10 +933,15 @@ export default function BuyerDashboard() {
                       district: addrArea.name || '',
                       postal_code: addrArea.postal_code || '',
                       address: addressStr,
-                      area: areaNoId
-                    }, { merge: true });
+                      area: { ...addrArea, area_id: areaId }
+                    };
+                    const { error: addrErr } = await supabase.from('users').update({
+                      profile,
+                      updated_at: new Date().toISOString()
+                    }).eq('id', userId);
+                    if (addrErr) throw new Error(addrErr.message);
                     // update local profile
-                    setUserProfile(prev => ({ ...(prev||{}), street: addrStreet, area_id: areaId, province: addrArea.province, city: addrArea.city_name, district: addrArea.name, postal_code: addrArea.postal_code, address: addressStr, area: areaNoId }));
+                    setUserProfile(prev => ({ ...(prev||{}), profile }));
                     setAddrModalOpen(false);
                   } catch (e) {
                     console.error('Save address error', e);

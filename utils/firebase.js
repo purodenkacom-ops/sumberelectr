@@ -1,40 +1,21 @@
-import { initializeApp, getApps } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword, signInWithPopup, signOut, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
+// utils/firebase.js - STUB ONLY
+// Firebase env vars removed. All queries migrated to Supabase.
+// Exports preserved as null to prevent import errors from any remaining references.
 
-const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
-};
+export const app = null;
+export const auth = null;
+export const firestore = null;
+export const storage = null;
+export const db = null;
 
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
-const auth = getAuth(app);
-const firestore = getFirestore(app);
-const storage = getStorage(app);
-const db = getFirestore(app);
-
-// Perbaikan: Buat fungsi signInWithGoogle sendiri
-const signInWithGoogle = () => {
-  const provider = new GoogleAuthProvider();
-  return signInWithPopup(auth, provider);
-};
-
-export { 
-  app, 
-  auth,
-  firestore,
-  storage,
-  db,
-  doc,
-  getDoc,
-  setDoc,
-  signOut,
-  signInWithPopup,
-  createUserWithEmailAndPassword,
-  signInWithGoogle // pastikan ini diekspor
-};
+export const doc = () => null;
+export const getDoc = () => Promise.resolve({ exists: () => false, data: () => ({}) });
+export const setDoc = () => Promise.resolve();
+export const signOut = () => Promise.resolve();
+export const signInWithPopup = () => Promise.resolve();
+export const createUserWithEmailAndPassword = () => Promise.resolve();
+export const signInWithGoogle = () => { throw new Error('Firebase removed. Use Supabase Auth.'); };
+export const getFirebaseApp = () => null;
+export const getFirebaseAuth = () => null;
+export const getFirebaseFirestore = () => null;
+export const getFirebaseStorage = () => null;

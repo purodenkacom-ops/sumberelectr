@@ -1,10 +1,10 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
-import { auth, firestore } from '@/utils/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/utils/supabase';
 import Link from 'next/link';
 
-// SVG icons (can be replaced with your icon library or SVG imports)
+// SVG icons
 const icons = {
   Dashboard: (
     <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8v-10h-8v10zm0-18v6h8V3h-8z" /></svg>
@@ -13,7 +13,6 @@ const icons = {
     <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M20 8l-8 4.5L4 8m16-3.5L12 2 4 4.5M20 8v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8" /></svg>
   ),
   'Benner Setting': (
-    // store setting icon (shop/storefront)
     <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V9a4 4 0 00-8 0v2M4 11h16l-1.34 7.34A2 2 0 0116.7 20H7.3a2 2 0 01-1.96-1.66L4 11z" />
     </svg>
@@ -21,7 +20,6 @@ const icons = {
   Orders: (
     <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M3 7h18M5 7v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7" /><path d="M9 3v4m6-4v4" /></svg>
   ),
-  
   Chat: (
     <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4-4.03 7-9 7a9.77 9.77 0 0 1-4-.8L3 21l1.8-4A7.96 7.96 0 0 1 3 12c0-4 4.03-7 9-7s9 3 9 7z" /></svg>
   ),
@@ -53,72 +51,47 @@ const navItems = [
   { name: 'Benner Setting', href: '/admin/benner' },
   { name: 'Orders', href: '/admin/orders' },
   { name: 'Chat', href: '/admin/chat' },
-    { name: 'Voucher', href: '/admin/voucher' },
+  { name: 'Voucher', href: '/admin/voucher' },
   { name: 'Settings', href: '/admin/settings' },
-  { name: 'Article Upload', href: '/admin/article-upload' }, // <-- Tambahkan baris ini
+  { name: 'Article Upload', href: '/admin/article-upload' },
 ];
 
 export default function AdminLayout({ children, title = 'Admin' }) {
   const router = useRouter();
+  const { user, role, loading: authLoading, logout } = useAuth();
   const current = router.pathname;
-  const [sidebarOpen, setSidebarOpen] = useState(false); // for mobile drawer
-  const [minimized, setMinimized] = useState(false); // for desktop minimize
-  const [checking, setChecking] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const mounted = useRef(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [minimized, setMinimized] = useState(false);
 
   useEffect(() => {
-    mounted.current = true;
-    const unsub = auth.onAuthStateChanged(async (u) => {
-      if (!u) {
-        setIsAdmin(false);
-        setChecking(false);
-        router.replace('/'); // redirect jika belum login
-        return;
-      }
-      try {
-        const snap = await getDoc(doc(firestore, 'users', u.uid));
-        const data = snap.exists() ? snap.data() : {};
-        const ok = data.role === 'admin' || data.isAdmin === true;
-        if (!ok) {
-          setIsAdmin(false);
-          setChecking(false);
-          router.replace('/'); // redirect jika bukan admin
-          return;
-        }
-        setIsAdmin(true);
-      } catch {
-        setIsAdmin(false);
-        router.replace('/');
-      } finally {
-        if (mounted.current) setChecking(false);
-      }
-    });
-    return () => {
-      mounted.current = false;
-      unsub && unsub();
-    };
-  }, [router]);
+    if (authLoading) return;
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
+    if (role !== 'admin') {
+      router.replace('/');
+    }
+  }, [user, role, authLoading, router]);
 
-  // Dummy logout handler (replace with your actual logout logic)
-  const handleLogout = () => {
-    // Example: remove token, call logout api, etc
-    // localStorage.removeItem('token');
-    // router.push('/login');
-    // window.location.reload();
-    // For now, just route to login
-    router.push('/login');
+  if (authLoading || !user || role !== 'admin') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="text-gray-500 text-sm">Memeriksa hak akses admin...</div>
+      </div>
+    );
+  }
+
+  const handleLogout = async () => {
+    await logout();
   };
 
-  // Mobile sidebar (slide out, full overlay)
   const MobileSidebar = () => (
     <div className={`fixed inset-0 z-50 flex lg:hidden ${sidebarOpen ? '' : 'pointer-events-none'}`}>
-      {/* Overlay */}
       <div
         className={`fixed inset-0 bg-black/40 transition-opacity duration-300 ${sidebarOpen ? 'opacity-100' : 'opacity-0'}`}
         onClick={() => setSidebarOpen(false)}
       />
-      {/* Sidebar */}
       <aside className={`relative w-64 max-w-full bg-red-700 text-white flex flex-col p-4 space-y-2 shadow-2xl transform transition-transform duration-300
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex items-center justify-between mb-8">
@@ -136,10 +109,9 @@ export default function AdminLayout({ children, title = 'Admin' }) {
               </span>
             </Link>
           ))}
-          {/* Logout button */}
           <button
             onClick={handleLogout}
-            className="flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-red-800 transition mt-2 text-left"
+            className="flex items-center gap-3 px-4 py-2 rounded-lg cursor-pointer hover:bg-red-800 transition text-left mt-auto"
           >
             {icons.Logout}
             <span>Logout</span>
@@ -149,101 +121,72 @@ export default function AdminLayout({ children, title = 'Admin' }) {
     </div>
   );
 
-  // Desktop sidebar (can be minimized)
-  const DesktopSidebar = () => (
-    <aside
-      className={`
-        hidden lg:fixed lg:inset-y-0 lg:flex flex-col bg-red-700 text-white transition-all duration-300
-        ${minimized ? 'w-20' : 'w-64'}
-        z-40
-      `}
-      style={{ left: 0, top: 0, bottom: 0 }}
-    >
-      <div className={`flex items-center justify-between mb-8 mt-5 px-4 ${minimized ? 'justify-center' : ''}`}>
-  {!minimized && <h2 className="text-xl font-bold">Purodenka</h2>}
-        <button
-          aria-label="Toggle sidebar"
-          onClick={() => setMinimized((v) => !v)}
-          className="p-2 hover:bg-red-600 rounded-md"
-        >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2}>
-            {minimized
-              ? <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
-              : <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/>
-            }
-          </svg>
-        </button>
-      </div>
-      <nav className="flex flex-col gap-1 flex-1">
-        {navItems.map((item) => (
-          <Link key={item.name} href={item.href}>
-            <span className={`flex items-center gap-3 px-4 py-2 rounded-lg cursor-pointer hover:bg-red-800 transition ${current === item.href ? 'bg-red-800 font-semibold' : ''} ${minimized ? 'justify-center px-2' : ''}`}>
-              {icons[item.name]}
-              {!minimized && <span className="truncate">{item.name}</span>}
-            </span>
-          </Link>
-        ))}
-        {/* Logout button */}
+  return (
+    <div className="flex h-screen bg-gray-100">
+      <MobileSidebar />
+
+      {/* Desktop Sidebar */}
+      <aside className={`hidden lg:flex flex-col bg-red-700 text-white transition-all duration-300 ${minimized ? 'w-20' : 'w-64'} p-4 justify-between shadow-xl`}>
+        <div>
+          <div className="flex items-center justify-between mb-8">
+            {!minimized && <h2 className="text-2xl font-bold tracking-wider">Purodenka</h2>}
+            <button
+              onClick={() => setMinimized(!minimized)}
+              className="p-1 rounded hover:bg-red-600 focus:outline-none mx-auto"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+          </div>
+
+          <nav className="flex flex-col gap-1">
+            {navItems.map((item) => (
+              <Link key={item.name} href={item.href}>
+                <span className={`flex items-center gap-4 px-3 py-3 rounded-xl cursor-pointer hover:bg-red-800 transition ${current === item.href ? 'bg-red-800 font-bold shadow-md' : ''}`}>
+                  {icons[item.name]}
+                  {!minimized && <span>{item.name}</span>}
+                </span>
+              </Link>
+            ))}
+          </nav>
+        </div>
+
         <button
           onClick={handleLogout}
-          className={`flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-red-800 transition mt-2 text-left ${minimized ? 'justify-center px-2' : ''}`}
+          className="flex items-center gap-4 px-3 py-3 rounded-xl hover:bg-red-800 transition text-left"
         >
           {icons.Logout}
           {!minimized && <span>Logout</span>}
         </button>
-      </nav>
-      {!minimized && (
-        <div className="mt-6 text-xs text-center text-gray-100 opacity-70 mb-6">© 2025 CodeCana13</div>
-      )}
-    </aside>
-  );
+      </aside>
 
-  // Re-add shift class (hilang di versi terakhir)
-  const mainShift = minimized ? 'lg:ml-20' : 'lg:ml-64';
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top Header */}
+        <header className="flex items-center justify-between bg-white px-6 py-4 border-b border-gray-200">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden p-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <h1 className="text-xl font-bold text-gray-800">{title}</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs bg-red-100 text-red-700 px-3 py-1 rounded-full font-medium">Admin</span>
+            <span className="text-sm font-medium text-gray-700">{user.email}</span>
+          </div>
+        </header>
 
-  if (checking) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
-        <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-sm text-gray-600">Memeriksa akses...</p>
+        {/* Page Content */}
+        <main className="flex-1 overflow-y-auto p-6">
+          {children}
+        </main>
       </div>
-    );
-  }
-
-  if (!isAdmin) return null;
-
-  return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Sidebar (desktop + mobile overlay) */}
-      <DesktopSidebar />
-      <MobileSidebar />
-
-      {/* Top bar */}
-      <header className={`bg-white border-b px-4 py-3 flex items-center gap-4 sticky top-0 z-40 ${mainShift}`}>
-        {/* Mobile toggle */}
-        <button
-          onClick={() => setSidebarOpen(true)}
-          className="lg:hidden p-2 rounded-md border text-gray-600 hover:bg-gray-50"
-          aria-label="Menu"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
-          </svg>
-        </button>
-        <h1 className="text-sm font-semibold text-gray-800 truncate">{title}</h1>
-        <div className="flex-1" />
-        <button
-          onClick={() => auth.signOut().then(()=>router.replace('/'))}
-          className="text-[11px] px-3 py-1 rounded bg-gray-200 hover:bg-gray-300 text-gray-700"
-        >
-          Keluar
-        </button>
-      </header>
-
-      {/* Main content */}
-      <main className={`${mainShift} p-4`}>
-        {children}
-      </main>
     </div>
   );
 }

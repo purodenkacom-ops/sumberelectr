@@ -1,15 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../context/AuthContext';
-import { sendPasswordResetEmail, sendEmailVerification, fetchSignInMethodsForEmail, GoogleAuthProvider, EmailAuthProvider, linkWithPopup, linkWithCredential } from 'firebase/auth';
-import { auth } from '@/utils/firebase';
-import { signInWithGoogle, firestore } from '@/utils/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { supabase } from '@/utils/supabase';
 import Image from 'next/image';
 import Link from 'next/link';
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, loginWithGoogle, user, role, loading: authLoading } = useAuth();
   const router = useRouter();
 
   const [form, setForm] = useState({ email: '', password: '' });
@@ -22,6 +19,23 @@ export default function LoginPage() {
   const [resetMsg, setResetMsg] = useState('');
   const [resetError, setResetError] = useState('');
 
+  // Auto redirect jika user sudah dalam keadaan login
+  useEffect(() => {
+    if (!authLoading && user) {
+      if (role === 'admin') {
+        router.replace('/admin/dashboard');
+      } else {
+        const redirect = localStorage.getItem('redirectAfterLogin');
+        if (redirect) {
+          localStorage.removeItem('redirectAfterLogin');
+          router.replace(redirect);
+        } else {
+          router.replace('/account');
+        }
+      }
+    }
+  }, [user, role, authLoading, router]);
+
   const handleChange = (e) =>
     setForm({ ...form, [e.target.name]: e.target.value });
 
@@ -30,50 +44,36 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      let user;
-      // If currently anonymous, try to LINK to keep UID and merge data
-      if (auth.currentUser && auth.currentUser.isAnonymous) {
-        try {
-          const cred = EmailAuthProvider.credential(form.email, form.password);
-          const linkRes = await linkWithCredential(auth.currentUser, cred);
-          user = linkRes.user;
-        } catch (linkErr) {
-          // If email already in use, fall back to normal sign-in (UID will change; merging would need migration)
-          const userCredential = await login(form.email, form.password);
-          user = userCredential.user || userCredential;
+      const res = await login(form.email, form.password);
+      const authUser = res?.user;
+
+      if (!authUser) {
+        setError('Invalid email or password');
+        return;
+      }
+
+      // Ambil role yang sudah disinkronkan
+      const userRole = res.fullUser?.role || 'buyer';
+
+      // Route guard redirect
+      if (userRole === 'admin') {
+        router.push('/admin/dashboard');
+      } else {
+        const redirect = localStorage.getItem('redirectAfterLogin');
+        if (redirect) {
+          localStorage.removeItem('redirectAfterLogin');
+          router.push(redirect);
+        } else {
+          router.push('/account');
         }
-      } else {
-        const userCredential = await login(form.email, form.password);
-        user = userCredential.user || userCredential;
-      }
-
-      // Reload agar status emailVerified paling baru
-      try { await user.reload(); } catch (_) {}
-
-      const userRef = doc(firestore, 'users', user.uid);
-      const userSnap = await getDoc(userRef);
-      const userData = userSnap.exists() ? userSnap.data() : null;
-
-      if (!user.emailVerified || (userData && userData.emailVerified === false && !user.emailVerified)) {
-        try { await sendEmailVerification(user); } catch (_) {}
-        await auth.signOut();
-        return router.push(`/please-verify?email=${encodeURIComponent(user.email)}&unverified=1`);
-      }
-
-      // Sinkronisasi ke Firestore bila sudah verified
-      if (userData && userData.emailVerified === false && user.emailVerified) {
-        try { await updateDoc(userRef, { emailVerified: true }); } catch (_) {}
-      }
-
-      if (userData) {
-        const role = userData.role;
-        if (role === 'admin') return router.push('/admin/dashboard');
-        return router.push('/');
-      } else {
-        setError('Akun tidak ditemukan.');
       }
     } catch (err) {
-      setError('Invalid email or password');
+      console.error('Login error:', err);
+      if (err.message?.includes('Email not confirmed')) {
+        setError('Email belum dikonfirmasi. Periksa inbox Anda.');
+      } else {
+        setError('Invalid email or password');
+      }
     } finally {
       setLoading(false);
     }
@@ -83,43 +83,10 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      let user;
-      if (auth.currentUser && auth.currentUser.isAnonymous) {
-        const provider = new GoogleAuthProvider();
-        const linkRes = await linkWithPopup(auth.currentUser, provider);
-        user = linkRes.user;
-      } else {
-        const userCredential = await signInWithGoogle();
-        user = userCredential.user || userCredential;
-      }
-
-      try { await user.reload(); } catch (_) {}
-
-      const userRef = doc(firestore, 'users', user.uid);
-      const userSnap = await getDoc(userRef);
-      const userData = userSnap.exists() ? userSnap.data() : null;
-
-      if (!user.emailVerified || (userData && userData.emailVerified === false && !user.emailVerified)) {
-        try { await sendEmailVerification(user); } catch (_) {}
-        await auth.signOut();
-        return router.push(`/please-verify?email=${encodeURIComponent(user.email)}&unverified=1`);
-      }
-
-      if (userData && userData.emailVerified === false && user.emailVerified) {
-        try { await updateDoc(userRef, { emailVerified: true }); } catch (_) {}
-      }
-
-      if (userData) {
-        const role = userData.role;
-        if (role === 'admin') return router.push('/admin/dashboard');
-        return router.push('/');
-      } else {
-        // Jika user belum punya doc → arahkan registrasi (atau buat doc baru di sini)
-        return router.push('/register');
-      }
+      await loginWithGoogle();
     } catch (err) {
+      console.error('Google login error:', err);
       setError('Google login failed.');
-    } finally {
       setLoading(false);
     }
   };
@@ -135,13 +102,11 @@ export default function LoginPage() {
     }
 
     try {
-      // Cek metode sign-in (lebih akurat daripada query koleksi users)
-      const methods = await fetchSignInMethodsForEmail(auth, resetEmail);
-      if (!methods || methods.length === 0) {
-        setResetError('Email tidak terdaftar.');
-        return;
-      }
-      await sendPasswordResetEmail(auth, resetEmail);
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+      const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+        redirectTo: `${siteUrl}/account/reset-password`,
+      });
+      if (error) throw error;
       setResetMsg('Link reset password telah dikirim. Periksa inbox Anda.');
     } catch (err) {
       setResetError('Gagal mengirim email reset password.');

@@ -3,113 +3,99 @@ import { useRouter } from 'next/router';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faSearch, faCartShopping } from '@fortawesome/free-solid-svg-icons';
 import { FaWhatsapp } from 'react-icons/fa';
-import { auth, firestore } from '@/utils/firebase';
-import {
-  doc,
-  collection,
-  onSnapshot,
-  query,
-  where,
-  getDoc
-} from 'firebase/firestore';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/utils/supabase';
 import TransactionMarquee from './TransactionMarquee';
 
 const Navbar = () => {
   const router = useRouter();
+  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [alamat, setAlamat] = useState('Mendeteksi lokasi...');
   const [loadingLoc, setLoadingLoc] = useState(true);
 
   const [userId, setUserId] = useState(null);
   const [cartCount, setCartCount] = useState(0);
-  // Chat internal dihapus; tidak ada unread counter
   const [buyerName, setBuyerName] = useState('');
   const [hideGeo, setHideGeo] = useState(false);
 
   const fixedRef = useRef(null);
   const [navHeight, setNavHeight] = useState(96);
 
+  // Sync user from AuthContext
+  useEffect(() => {
+    if (user) {
+      const uid = user.id || user.uid;
+      setUserId(uid);
+      const bn = user.profile?.name || user.name || user.email?.split('@')[0] || 'User';
+      setBuyerName(bn);
+    } else {
+      setUserId(null);
+      setBuyerName('');
+      setCartCount(0);
+    }
+  }, [user]);
+
   // Geolocation
   useEffect(() => {
     if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(async pos => {
-        try {
-          const { latitude: lat, longitude: lng } = pos.coords;
-          const url = `/api/geo/reverse?lat=${lat}&lon=${lng}`;
-          const res = await fetch(url);
-          const data = await res.json();
-          setAlamat(data.display_name || 'Alamat tidak ditemukan');
-        } catch {
-          setAlamat('Gagal mengambil alamat');
-        } finally {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          try {
+            const { latitude: lat, longitude: lng } = pos.coords;
+            const url = `/api/geo/reverse?lat=${lat}&lon=${lng}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            setAlamat(data.display_name || 'Alamat tidak ditemukan');
+          } catch {
+            setAlamat('Gagal mengambil alamat');
+          } finally {
+            setLoadingLoc(false);
+          }
+        },
+        () => {
+          setAlamat('Gagal mendeteksi lokasi');
           setLoadingLoc(false);
         }
-      }, () => {
-        setAlamat('Gagal mendeteksi lokasi');
-        setLoadingLoc(false);
-      });
+      );
     } else {
       setAlamat('Geolocation tidak didukung');
       setLoadingLoc(false);
     }
   }, []);
 
-  // Auth
+  // Cart count from Supabase
   useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged(u => {
-      if (u) {
-        setUserId(u.uid);
-      } else {
-        setUserId(null);
-        setCartCount(0);
-      }
-    });
-    return () => unsubAuth();
-  }, []);
-
-  // Cart count
-  useEffect(() => {
-    if (!userId) return;
-    const cartRef = doc(firestore, 'carts', userId);
-    const unsub = onSnapshot(cartRef, snap => {
-      if (!snap.exists()) {
-        setCartCount(0);
-        return;
-      }
-      const items = Array.isArray(snap.data().items) ? snap.data().items : [];
-      const distinct = new Set(
-        items
-          .filter(it => (it?.quantity || 0) > 0)
-          .map(it => it.productId || it.id || it.name || JSON.stringify(it))
-      ).size;
-      setCartCount(distinct);
-    });
-    return () => unsub();
-  }, [userId]);
-
-  // Unread chat dihapus (beralih ke WhatsApp)
-
-  // Buyer name
-  useEffect(() => {
-    const loadName = async () => {
-      if (!userId) {
-        setBuyerName('');
-        return;
-      }
+    if (!userId) {
+      setCartCount(0);
+      return;
+    }
+    let isMounted = true;
+    async function loadCartCount() {
       try {
-        const userDoc = await getDoc(doc(firestore, 'users', userId));
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-          const bn = data.buyername || data.buyerName || data.name || data.fullName || data.username || auth.currentUser?.displayName || '';
-          setBuyerName(bn);
-        } else {
-          setBuyerName(auth.currentUser?.displayName || '');
-        }
-      } catch {
-        setBuyerName(auth.currentUser?.displayName || '');
+        const { data } = await supabase
+          .from('carts')
+          .select('items')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!isMounted) return;
+        const items = Array.isArray(data?.items) ? data.items : [];
+        const distinct = new Set(
+          items
+            .filter((it) => (it?.quantity || 0) > 0)
+            .map((it) => it.productId || it.id || it.name || JSON.stringify(it))
+        ).size;
+        setCartCount(distinct);
+      } catch (err) {
+        console.warn('Navbar cart fetch error:', err);
       }
+    }
+
+    loadCartCount();
+    return () => {
+      isMounted = false;
     };
-    loadName();
   }, [userId]);
 
   // Hide geolocation when scroll
@@ -148,7 +134,7 @@ const Navbar = () => {
     };
   }, [buyerName, alamat, hideGeo]);
 
-  const handleSearchSubmit = e => {
+  const handleSearchSubmit = (e) => {
     e.preventDefault();
     if (!searchTerm.trim()) return;
     router.push(`/search?q=${encodeURIComponent(searchTerm.trim())}`);
@@ -230,7 +216,7 @@ const Navbar = () => {
             <input
               type="text"
               value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
+              onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-3 py-2 text-base rounded-full border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blueLight bg-white shadow-sm placeholder:text-gray-400 transition"
               placeholder="Cari MCB, kabel, power supply, atau alat listrik…"
               aria-label="Cari produk"

@@ -1,22 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { firestore } from '@/utils/firebase';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { useCategories } from '@/hooks/useCategories';
 import { FaChevronDown, FaChevronRight, FaBorderAll, FaTimes } from 'react-icons/fa';
 
 /**
  * Collapsible Tokopedia-style sidebar for category and subcategory filtering.
  * Works as a sticky sidebar on desktop, and a beautiful slide-up bottom sheet on mobile.
- *
- * Props:
- *   - currentCategorySlug: string (slug of current active parent category)
- *   - currentSubCategorySlug: string (slug of current active subcategory)
- *   - onCategorySelect: (categoryName: string, categorySlug: string) => void
- *   - onSubCategorySelect: (subCategoryName: string, subCategorySlug: string | null) => void
- *   - onClearFilters: () => void
- *   - isMobile: boolean (toggles mobile drawer mode)
- *   - isOpen: boolean (drawer open state for mobile)
- *   - onClose: () => void (drawer close callback)
  */
 const ProductSidebar = ({
   currentCategorySlug = '',
@@ -29,74 +18,58 @@ const ProductSidebar = ({
   onClose,
 }) => {
   const router = useRouter();
+  const { categories: rawCategories, loading } = useCategories();
   const [categories, setCategories] = useState([]);
   const [subCategories, setSubCategories] = useState([]);
   const [expandedCategories, setExpandedCategories] = useState({});
-  const [loading, setLoading] = useState(true);
 
-  // Fetch categories & subcategories
   useEffect(() => {
-    const qRef = query(collection(firestore, 'categories'), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(
-      qRef,
-      (snap) => {
-        const cats = [];
-        const subCats = [];
+    if (!rawCategories || !rawCategories.length) return;
 
-        snap.forEach((d) => {
-          const data = d.data();
-          const name = data.name || 'Kategori';
-          const slug =
-            data.slug ||
-            name
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, '-')
-              .replace(/^-+|-+$/g, '');
+    const cats = [];
+    const subCats = [];
 
-          const catObj = {
-            id: d.id,
-            name,
-            slug,
-            parentId: data.parentId || null,
-          };
+    rawCategories.forEach((d) => {
+      const name = d.name || 'Kategori';
+      const slug =
+        d.slug ||
+        name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '');
 
-          if (catObj.parentId) {
-            subCats.push(catObj);
-          } else {
-            cats.push(catObj);
-          }
-        });
+      const catObj = {
+        id: d.id,
+        name,
+        slug,
+        parentId: d.parentId || d.parent_id || null,
+      };
 
-        // Sort alphabetically for nice presentation
-        cats.sort((a, b) => a.name.localeCompare(b.name, 'id'));
-        subCats.sort((a, b) => a.name.localeCompare(b.name, 'id'));
-
-        setCategories(cats);
-        setSubCategories(subCats);
-        setLoading(false);
-
-        // Auto-expand the active parent category if there's an active category slug
-        if (currentCategorySlug) {
-          const activeParent = cats.find((c) => c.slug === currentCategorySlug);
-          if (activeParent) {
-            setExpandedCategories((prev) => ({
-              ...prev,
-              [activeParent.id]: true,
-            }));
-          }
-        }
-      },
-      (error) => {
-        console.error('Failed to load sidebar categories:', error);
-        setLoading(false);
+      if (catObj.parentId) {
+        subCats.push(catObj);
+      } else {
+        cats.push(catObj);
       }
-    );
+    });
 
-    return () => unsub();
-  }, [currentCategorySlug]);
+    cats.sort((a, b) => a.name.localeCompare(b.name, 'id'));
+    subCats.sort((a, b) => a.name.localeCompare(b.name, 'id'));
+
+    setCategories(cats);
+    setSubCategories(subCats);
+
+    if (currentCategorySlug) {
+      const activeParent = cats.find((c) => c.slug === currentCategorySlug);
+      if (activeParent) {
+        setExpandedCategories((prev) => ({
+          ...prev,
+          [activeParent.id]: true,
+        }));
+      }
+    }
+  }, [rawCategories, currentCategorySlug]);
 
   const toggleExpand = (catId, e) => {
-    // Prevent event propagation if needed
     e.stopPropagation();
     setExpandedCategories((prev) => ({
       ...prev,
@@ -106,14 +79,11 @@ const ProductSidebar = ({
 
   const handleParentClick = (cat, e) => {
     e.preventDefault();
-
-    // Toggle expand state
     setExpandedCategories((prev) => ({
       ...prev,
       [cat.id]: !prev[cat.id],
     }));
 
-    // Trigger select callback
     if (onCategorySelect) {
       onCategorySelect(cat.name, cat.slug);
     }
@@ -154,22 +124,18 @@ const ProductSidebar = ({
     );
   }
 
-  // --- MOBILE DRAWER RENDER ---
   if (isMobile) {
     if (!isOpen) return null;
     return (
       <div className="fixed inset-0 z-50 lg:hidden">
-        {/* Backdrop overlay */}
         <div
           className="fixed inset-0 bg-black/45 backdrop-blur-[2px] animate-fade-in"
           onClick={onClose}
         />
-        {/* Bottom sheet */}
         <div
           className="fixed bottom-0 left-0 right-0 bg-white rounded-t-[2rem] shadow-2xl max-h-[85vh] flex flex-col z-50 animate-slide-up pb-6"
           style={{ willChange: 'transform' }}
         >
-          {/* Top drag handle indicator and header */}
           <div className="flex flex-col items-center pt-3 pb-3 border-b border-gray-100 px-6">
             <div className="w-12 h-1 bg-gray-200 rounded-full mb-3 cursor-pointer" onClick={onClose} />
             <div className="flex items-center justify-between w-full">
@@ -187,9 +153,7 @@ const ProductSidebar = ({
             </div>
           </div>
 
-          {/* Categories List (Scrollable) */}
           <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
-            {/* Semua Produk / Clear Filters button */}
             <button
               onClick={() => {
                 if (onClearFilters) {
@@ -207,7 +171,6 @@ const ProductSidebar = ({
               <span>Semua Produk</span>
             </button>
 
-            {/* Accordion Categories */}
             <div className="space-y-1.5">
               {categories.map((cat) => {
                 const isSelected = currentCategorySlug === cat.slug;
@@ -242,7 +205,6 @@ const ProductSidebar = ({
                       )}
                     </div>
 
-                    {/* Subcategories (Collapsible list) */}
                     {isExpanded && catSubCats.length > 0 && (
                       <div className="pl-5 mt-2 space-y-1 border-l-2 border-red-100 ml-4">
                         {catSubCats.map((sub) => {
@@ -271,7 +233,6 @@ const ProductSidebar = ({
           </div>
         </div>
 
-        {/* Self-contained CSS Animations */}
         <style jsx="true">{`
           @keyframes slideUp {
             from { transform: translateY(100%); }
@@ -279,7 +240,7 @@ const ProductSidebar = ({
           }
           @keyframes fadeIn {
             from { opacity: 0; }
-            to { opacity: 1; }
+            to { transform: translateY(0); }
           }
           .animate-slide-up {
             animation: slideUp 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -292,7 +253,6 @@ const ProductSidebar = ({
     );
   }
 
-  // --- DESKTOP SIDEBAR RENDER ---
   return (
     <aside className="w-full bg-white border border-red-100 rounded-2xl p-5 shadow-sm max-h-[calc(100vh-140px)] overflow-y-auto">
       <h2 className="text-base font-bold text-gray-800 mb-4 border-b border-gray-100 pb-3 flex items-center gap-2">
@@ -300,7 +260,6 @@ const ProductSidebar = ({
         Brand
       </h2>
 
-      {/* Semua Produk / Clear Filters button */}
       <button
         onClick={() => {
           if (onClearFilters) {
@@ -318,7 +277,6 @@ const ProductSidebar = ({
         <span>Semua Produk</span>
       </button>
 
-      {/* Accordion Categories */}
       <div className="space-y-1">
         {categories.map((cat) => {
           const isSelected = currentCategorySlug === cat.slug;
@@ -353,7 +311,6 @@ const ProductSidebar = ({
                 )}
               </div>
 
-              {/* Subcategories (Collapsible list) */}
               {isExpanded && catSubCats.length > 0 && (
                 <div className="pl-5 mt-1.5 space-y-1 border-l-2 border-red-50/50 ml-3.5">
                   {catSubCats.map((sub) => {

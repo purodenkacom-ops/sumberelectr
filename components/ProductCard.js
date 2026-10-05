@@ -1,27 +1,28 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { FaStar, FaShoppingCart } from 'react-icons/fa';
-import { auth } from '@/utils/firebase';
+import { useAuth } from '@/context/AuthContext';
 import PopupCart from './PopupCart';
 import Image from 'next/image';
 import { useDiscounts } from '@/context/DiscountContext';
 import { getEffectiveProductSlug } from '@/utils/productSlug';
 
 const ProductCard = ({ product, onAddToCart }) => {
+  const { user } = useAuth();
   const [userId, setUserId] = useState(null);
   const [buyerName, setBuyerName] = useState('');
   const [showCartPopup, setShowCartPopup] = useState(false);
 
-  // Auth check
+  // Auth check via Supabase AuthContext
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(user => {
-      if (user) {
-        setUserId(user.uid);
-        setBuyerName(user.displayName || 'Pembeli');
-      }
-    });
-    return () => unsub();
-  }, []);
+    if (user) {
+      setUserId(user.id || user.uid);
+      setBuyerName(user.user_metadata?.name || user.email?.split('@')[0] || 'Pembeli');
+    } else {
+      setUserId(null);
+      setBuyerName('');
+    }
+  }, [user]);
 
   // Format harga
   const formatIDR = val =>

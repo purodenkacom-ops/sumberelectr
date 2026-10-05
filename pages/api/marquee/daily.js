@@ -1,4 +1,4 @@
-import { adminDb } from '@/utils/firebaseAdmin';
+import { supabaseAdmin } from '@/utils/supabaseAdmin';
 import reviewsData from '@/utils/reviews.json';
 
 function maskName(name) {
@@ -6,17 +6,12 @@ function maskName(name) {
   const clean = String(name).trim();
   if (clean.length <= 2) return clean[0] + '*';
   if (clean.length <= 5) {
-    const first = clean[0];
-    const last = clean[clean.length - 1];
-    return `${first}***${last}`;
+    return `${clean[0]}***${clean[clean.length - 1]}`;
   }
-  const head = clean.slice(0, 3);
-  const tail = clean.slice(-2);
-  return `${head}***${tail}`;
+  return `${clean.slice(0, 3)}***${clean.slice(-2)}`;
 }
 
 function todayKeyTZ() {
-  // Use Asia/Jakarta calendar parts to get YYYYMMDD in WIB
   const parts = new Intl.DateTimeFormat('id-ID', {
     timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit'
   }).formatToParts(new Date());
@@ -27,10 +22,7 @@ function todayKeyTZ() {
 }
 
 function yesterdayDateStrTZ() {
-  // Get yesterday in Asia/Jakarta as a localized date string
-  const now = new Date();
-  // Subtract 24h; sufficient for date label purposes with TZ formatting
-  const y = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const y = new Date(Date.now() - 24 * 60 * 60 * 1000);
   return new Intl.DateTimeFormat('id-ID', {
     timeZone: 'Asia/Jakarta', day: '2-digit', month: 'short', year: 'numeric'
   }).format(y);
@@ -53,23 +45,25 @@ function makeRng(seedStr) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   res.setHeader('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=3600');
   try {
     const names = Array.isArray(reviewsData?.names) ? reviewsData.names : [];
     if (!names.length) return res.status(200).json({ dateKey: null, items: [] });
 
     const dateKey = todayKeyTZ();
-    const col = adminDb.collection('marquee_transactions');
-    const docRef = col.doc(dateKey);
-    const snap = await docRef.get();
-    if (snap.exists) {
-      return res.status(200).json({ dateKey, items: snap.data().items || [] });
+
+    // Check cache
+    const { data: existing } = await supabaseAdmin
+      .from('marquee_transactions')
+      .select('*')
+      .eq('date_key', dateKey)
+      .single();
+    if (existing) {
+      return res.status(200).json({ dateKey, items: existing.items || [] });
     }
 
-    // Build deterministically with seed = dateKey
+    // Build deterministically
     const rng = makeRng(dateKey);
     const pool = [...names];
     for (let i = pool.length - 1; i > 0; i--) {
@@ -82,21 +76,36 @@ export default async function handler(req, res) {
     for (let i = 0; i < count; i++) {
       const name = pool[i];
       const amount = Math.floor(50000 + rng() * (500000 - 50000));
-      const h = 8 + Math.floor(rng() * 15); // 8..22
+      const h = 8 + Math.floor(rng() * 15);
       const m = Math.floor(rng() * 60);
-      const hh = String(h).padStart(2, '0');
-      const mm = String(m).padStart(2, '0');
-      items.push({ id: i + 1, nameMasked: maskName(name), amount, date: dateStr, time: `${hh}:${mm} WIB` });
+      items.push({
+        id: i + 1,
+        nameMasked: maskName(name),
+        amount,
+        date: dateStr,
+        time: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')} WIB`
+      });
     }
 
-    await docRef.set({ dateKey, items, createdAt: new Date() });
+    await supabaseAdmin.from('marquee_transactions').insert({
+      date_key: dateKey,
+      items,
+      created_at: new Date().toISOString()
+    });
 
-    // Best-effort cleanup: delete other docs in background (up to 3)
+    // Cleanup old rows (best-effort)
     try {
-      const others = await col.where('dateKey', '!=', dateKey).limit(3).get();
-      const batch = adminDb.batch();
-      others.docs.forEach(d => batch.delete(d.ref));
-      if (!others.empty) await batch.commit();
+      const { data: old } = await supabaseAdmin
+        .from('marquee_transactions')
+        .select('id')
+        .neq('date_key', dateKey)
+        .limit(3);
+      if (old?.length) {
+        await supabaseAdmin
+          .from('marquee_transactions')
+          .delete()
+          .in('id', old.map(r => r.id));
+      }
     } catch {}
 
     return res.status(200).json({ dateKey, items });

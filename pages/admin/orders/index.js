@@ -19,8 +19,8 @@ import {
   setDoc,
   increment
 } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
-import { firestore, auth } from '@/utils/firebase';
+import { firestore } from '@/utils/firebase';
+import { useAuth } from '@/context/AuthContext';
 import AdminLayout from '../_layout';
 import Image from 'next/image';
 
@@ -243,6 +243,7 @@ async function createRefundVoucherForInvoice(firestore, invoice) {
 
 export default function AdminOrdersPage() {
   const router = useRouter();
+  const { user, role, loading: authLoading } = useAuth();
   const [authReady, setAuthReady] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminChecked, setAdminChecked] = useState(false);
@@ -297,26 +298,16 @@ export default function AdminOrdersPage() {
 
   // Auth
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async u => {
-      setAuthReady(true);
-      setIsAdmin(false);
-      setAdminChecked(false);
-      if (!u) {
-        router.replace('/login');
-        setAdminChecked(true);
-        return;
-      }
-      try {
-        const snap = await getDoc(doc(firestore, 'users', u.uid));
-        setIsAdmin(snap.exists() && snap.data().role === 'admin');
-      } catch {
-        setIsAdmin(false);
-      } finally {
-        setAdminChecked(true);
-      }
-    });
-    return () => unsub();
-  }, [router]);
+    if (authLoading) return;
+    setAuthReady(true);
+    if (!user) {
+      router.replace('/login');
+      setAdminChecked(true);
+      return;
+    }
+    setIsAdmin(role === 'admin');
+    setAdminChecked(true);
+  }, [user, role, authLoading, router]);
 
   // Build query for base & filters (dipertahankan untuk realtime)
   const buildBaseQuery = useCallback((forPage = false) => {

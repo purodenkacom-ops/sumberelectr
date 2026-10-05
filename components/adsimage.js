@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import Image from 'next/image';
-import { firestore } from '@/utils/firebase';
-import { collection, getDocs, query, limit } from 'firebase/firestore';
+import { supabase } from '@/utils/supabase';
 
 // AdsImage: 1:1 image carousel showing up to 16 random products (1 image each)
 // Props:
@@ -44,10 +43,12 @@ export default function AdsImage({ userId, max = 16, intervalMs = 3500, transiti
     let mounted = true;
     (async () => {
       try {
-        // Fetch a reasonable slice, then shuffle client-side
-        const q = query(collection(firestore, 'products'), limit(100));
-        const snap = await getDocs(q);
-        const products = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const { data, error } = await supabase
+          .from('products')
+          .select('*')
+          .limit(100);
+        if (error) throw error;
+        const products = (data || []);
         const shuffled = shuffle(products);
 
         const picks = [];
@@ -182,3 +183,5 @@ export default function AdsImage({ userId, max = 16, intervalMs = 3500, transiti
     </div>
   );
 }
+
+

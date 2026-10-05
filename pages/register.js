@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { auth, firestore, setDoc, doc } from '@/utils/firebase';
+import { supabase } from '@/utils/supabase';
 import AreaSelect from '../components/AreaSelect';
 import Link from 'next/link';
 
@@ -57,25 +57,26 @@ export default function RegisterPage() {
       return;
     }
 
-    const user = auth.currentUser;
+    const { data: { user } } = await supabase.auth.getUser();
     try {
-      await setDoc(doc(firestore, 'users', user.uid), {
-        buyerName: form.name,
+      const { error } = await supabase.from('users').upsert({
+        id: user.id,
+        buyer_name: form.name,
         phone: form.phone,
         street: form.street,
         role: 'buyer',
         email: user.email,
-        profilePicture: user.photoURL || '',
-        area_id: form.area?.id + "IDZ" + form.area?.postal_code || '',
+        profile_picture: user.user_metadata?.avatar_url || '',
+        area_id: form.area?.id + 'IDZ' + form.area?.postal_code || '',
         province: form.area?.province || '',
         city: form.area?.city_name || '',
         district: form.area?.name || '',
         postal_code: form.area?.postal_code || '',
-        address: makeAddress(form.street, form.area), // field address baru
-        area: areaWithoutId(form.area), // simpan area tanpa id
-        createdAt: new Date(),
-      });
-
+        address: makeAddress(form.street, form.area),
+        area: areaWithoutId(form.area),
+        created_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+      if (error) throw error;
       router.push('/');
     } catch (err) {
       console.error('Error during registration:', err);

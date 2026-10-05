@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { auth, firestore } from '@/utils/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/utils/supabase';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faSearch, faCartShopping } from '@fortawesome/free-solid-svg-icons';
 import { FaArrowLeft } from 'react-icons/fa';
@@ -79,31 +79,37 @@ export default function MiniNavbar({ backUrl, backLabel }) {
     return () => router.events.off('beforeHistoryChange', handleRouteChange);
   }, [router.events]);
 
+  const { user } = useAuth();
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(u => {
-      if (u) setUserId(u.uid);
-      else {
-        setUserId(null);
-        setCartCount(0);
-      }
-    });
-    return () => unsub();
-  }, []);
+    if (user) setUserId(user.id || user.uid);
+    else {
+      setUserId(null);
+      setCartCount(0);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (!userId) return;
-    const cartRef = doc(firestore, 'carts', userId);
-    const unsub = onSnapshot(cartRef, snap => {
-      if (!snap.exists()) { setCartCount(0); return; }
-      const items = Array.isArray(snap.data().items) ? snap.data().items : [];
+    let mounted = true;
+    const fetchCart = async () => {
+      const { data } = await supabase
+        .from('carts')
+        .select('items')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (!mounted) return;
+      const items = Array.isArray(data?.items) ? data.items : [];
       const distinct = new Set(
         items
           .filter(it => (it?.quantity || 0) > 0)
           .map(it => it.productId || it.id || it.name || JSON.stringify(it))
       ).size;
       setCartCount(distinct);
-    });
-    return () => unsub();
+    };
+    fetchCart();
+    // poll every 10s (no realtime needed here)
+    const interval = setInterval(fetchCart, 10000);
+    return () => { mounted = false; clearInterval(interval); };
   }, [userId]);
 
   const submitSearch = (e) => {

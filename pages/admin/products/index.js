@@ -1,21 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { useRouter } from 'next/router';
-import { auth, firestore, storage } from '../../../utils/firebase';
-import {
-  collection,
-  getDocs,
-  addDoc,
-  query,
-  deleteDoc,
-  doc,
-  getDoc,
-  setDoc,
-  onSnapshot,
-  orderBy
-} from 'firebase/firestore';
-import { ref, deleteObject } from 'firebase/storage';
-import { onAuthStateChanged } from 'firebase/auth';
+import { supabase } from '@/utils/supabase';
+import { useAuth } from '@/context/AuthContext';
 import AdminLayout from '../_layout';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -71,6 +58,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50];
 export default function ProductListPage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
+  const { user: authUser } = useAuth();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [categoryDocs, setCategoryDocs] = useState([]);
@@ -131,7 +119,7 @@ export default function ProductListPage() {
           rating,
           createdAt: randDate()
         };
-        tasks.push(addDoc(collection(firestore, 'reviews'), data));
+        tasks.push(supabase.from('reviews').insert(data));
       }
       await Promise.all(tasks);
       return true;
@@ -142,50 +130,37 @@ export default function ProductListPage() {
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
+    const checkAuth = async () => {
+      if (!authUser) {
         router.push('/login');
         return;
       }
-      const userRef = doc(firestore, 'users', user.uid);
-      const userSnap = await getDoc(userRef);
-      if (!userSnap.exists()) {
-        router.push('/login');
-        return;
-      }
-      const userData = userSnap.data();
-      if (userData.role !== 'admin') {
+      const { data: userData } = await supabase.from('users').select('role').eq('id', authUser.id).single();
+      if (!userData || userData.role !== 'admin') {
         router.push('/unauthorized');
         return;
       }
-      setUser(user);
+      setUser(authUser);
       fetchProducts();
-    });
-    return () => unsubscribe();
-  }, [router]);
+    };
+    checkAuth();
+  }, [authUser, router]);
 
   // Ambil daftar kategori realtime dari Firestore
   useEffect(() => {
-    const qCats = query(collection(firestore, 'categories'), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(qCats, snap => {
-      const list = [];
-      snap.forEach(d => {
-        const data = d.data() || {};
-        list.push({
+    supabase.from('categories').select('*').order('created_at', { ascending: false })
+      .then(({ data }) => {
+        const list = (data || []).map(d => ({
           id: d.id,
-          name: data.name || 'Kategori',
-          slug: data.slug || getCategorySlug(data.name),
-          icon: data.icon || '',
-          parentId: data.parentId || null
-        });
-      });
-      setCategoryDocs(list);
-      setCategoriesLoading(false);
-    }, () => {
-      setCategoryDocs([]);
-      setCategoriesLoading(false);
-    });
-    return () => unsub();
+          name: d.name || 'Kategori',
+          slug: d.slug || getCategorySlug(d.name),
+          icon: d.icon || '',
+          parentId: d.parent_id || null
+        }));
+        setCategoryDocs(list);
+        setCategoriesLoading(false);
+      })
+      .catch(() => { setCategoryDocs([]); setCategoriesLoading(false); });
   }, []);
 
   useEffect(() => {
@@ -194,10 +169,8 @@ export default function ProductListPage() {
 
   const fetchProducts = async () => {
     setLoading(true);
-    const q = query(collection(firestore, 'products'));
-    const snap = await getDocs(q);
-    const list = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    setProducts(list);
+    const { data } = await supabase.from('products').select('*').order('created_at', { ascending: false });
+    setProducts(data || []);
     setLoading(false);
   };
 
@@ -213,8 +186,8 @@ export default function ProductListPage() {
               const match = imgUrl.match(/\/o\/(.*?)\?/);
               const path = match ? decodeURIComponent(match[1]) : null;
               if (path) {
-                const imgRef = ref(storage, path);
-                await deleteObject(imgRef);
+            // skip old Firebase Storage delete - images now on Cloudinary
+              // (deleteObject removed)
               }
             } catch (e) {}
           }
@@ -272,7 +245,7 @@ export default function ProductListPage() {
           console.warn('Cloudinary delete error', pubId, e?.message || e);
         }
       }
-      await deleteDoc(doc(firestore, 'products', id));
+      await supabase.from('products').delete().eq('id', id);
       setProducts(products.filter((p) => p.id !== id));
     }
   };
@@ -380,8 +353,7 @@ export default function ProductListPage() {
             const match = form.existingImages[i].match(/\/o\/(.*?)\?/);
             const path = match ? decodeURIComponent(match[1]) : null;
             if (path) {
-              const imgRef = ref(storage, path);
-              await deleteObject(imgRef);
+              // skip old Firebase Storage delete - images now on Cloudinary
             }
           } catch (e) {}
         }
@@ -435,10 +407,51 @@ export default function ProductListPage() {
 
     try {
       if (editId) {
-        await setDoc(doc(firestore, 'products', editId), productData, { merge: true });
+        await supabase.from('products').update({
+          name: productData.name,
+          category: productData.category,
+          category_slug: productData.categorySlug,
+          sub_category: productData.subCategory,
+          sub_category_slug: productData.subCategorySlug,
+          stock: productData.stock,
+          weight: productData.weight,
+          price: productData.price,
+          price_retail: productData.priceRetail,
+          price_wholesale: productData.priceWholesale,
+          description: productData.description,
+          images: productData.images,
+          product_slug: productData.productSlug,
+          updated_at: new Date().toISOString(),
+        }).eq('id', editId);
         setSuccess('Produk berhasil diubah.');
       } else {
-        const docRef = await addDoc(collection(firestore, 'products'), productData);
+        // Generate unique ID for new product
+        const productId = `prod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        const { data: inserted, error: insertError } = await supabase.from('products').insert({
+          id: productId,
+          name: productData.name,
+          category: productData.category,
+          category_slug: productData.categorySlug,
+          sub_category: productData.subCategory,
+          sub_category_slug: productData.subCategorySlug,
+          stock: productData.stock,
+          weight: productData.weight,
+          price: productData.price,
+          price_retail: productData.priceRetail,
+          price_wholesale: productData.priceWholesale,
+          description: productData.description,
+          images: productData.images,
+          product_slug: productData.productSlug,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).select().single();
+        
+        if (insertError) {
+          console.error('Supabase insert error:', insertError);
+          throw new Error(insertError.message || 'Insert failed');
+        }
+        
         setSuccess('Produk berhasil ditambahkan.');
 
         // Seed bot reviews logic removed per user request
@@ -894,49 +907,47 @@ export default function ProductListPage() {
     setBulkImporting(true);
     setBulkSuccessMessage('');
     try {
-      // Ambil semua produk lama untuk mapping slug -> id
-      const existingSnap = await getDocs(collection(firestore, 'products'));
+      // Ambil mapping slug/sku -> id dari Supabase
+      const { data: existingProds } = await supabase.from('products').select('id,product_slug,sku');
       const slugToId = {};
       const skuToId = {};
-      existingSnap.forEach(doc => {
-        const data = doc.data();
-        if (data.productSlug) slugToId[data.productSlug] = doc.id;
-        if (data.sku) skuToId[String(data.sku).trim()] = doc.id;
+      (existingProds || []).forEach(p => {
+        if (p.product_slug) slugToId[p.product_slug] = p.id;
+        if (p.sku) skuToId[String(p.sku).trim()] = p.id;
       });
 
-      // Firestore batch import (chunked)
-      const { writeBatch, collection: coll, doc: fsDoc } = await import('firebase/firestore');
-      const chunkSize = 400; // below 500 limit
+      // Supabase upsert (chunked 100)
+      const chunkSize = 100;
       let importedIds = [];
       for (let i = 0; i < bulkProductsReady.length; i += chunkSize) {
-        const batch = writeBatch(firestore);
         const slice = bulkProductsReady.slice(i, i + chunkSize);
-        const idsInChunk = [];
-        const prodRefInfo = {}; // slug -> { id, isNew }
-        const seedPlan = []; // { id, isNew }
-        for (const prod of slice) {
-          const prodSlug = prod.productSlug;
+        const rows = slice.map(prod => {
           const sku = prod.sku ? String(prod.sku).trim() : '';
-          let ref; let isNew = false;
-          if (sku && skuToId[sku]) {
-            ref = fsDoc(coll(firestore, 'products'), skuToId[sku]);
-          } else if (prodSlug && slugToId[prodSlug]) {
-            ref = fsDoc(coll(firestore, 'products'), slugToId[prodSlug]);
-          } else {
-            ref = fsDoc(coll(firestore, 'products')); // new doc with random id
-            isNew = true;
-          }
-          batch.set(ref, prod, { merge: true });
-          idsInChunk.push(ref.id);
-          prodRefInfo[prodSlug] = { id: ref.id, isNew };
-          seedPlan.push({ id: ref.id, isNew });
-        }
-        await batch.commit();
-        importedIds = importedIds.concat(idsInChunk);
-
-        // Seed reviews logic removed per user request
+          const existId = (sku && skuToId[sku]) || (prod.productSlug && slugToId[prod.productSlug]) || null;
+          return {
+            ...(existId ? { id: existId } : {}),
+            name: prod.name,
+            category: prod.category || null,
+            category_slug: prod.categorySlug || null,
+            sub_category: prod.subCategory || null,
+            sub_category_slug: prod.subCategorySlug || null,
+            price: prod.price || null,
+            price_retail: prod.priceRetail || prod.price || null,
+            price_wholesale: prod.priceWholesale || null,
+            stock: prod.stock || 0,
+            weight: prod.weight || null,
+            description: prod.description || null,
+            images: prod.images || [],
+            sku: sku || null,
+            product_slug: prod.productSlug || null,
+            video: prod.video || null,
+            updated_at: new Date().toISOString(),
+          };
+        });
+        const { data: upserted } = await supabase.from('products').upsert(rows, { onConflict: 'id' }).select('id');
+        importedIds = importedIds.concat((upserted || []).map(r => r.id));
       }
-  setBulkSuccessMessage(`${bulkProductsReady.length} produk berhasil diimport.`);
+      setBulkSuccessMessage(`${bulkProductsReady.length} produk berhasil diimport.`);
       fetchProducts();
       setBulkProductsReady([]);
     } catch (err) {

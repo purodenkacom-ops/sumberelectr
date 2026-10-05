@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
-import { auth, firestore } from '@/utils/firebase';
-import { collection, getDocs, doc, getDoc, updateDoc, setDoc, serverTimestamp, deleteDoc } from 'firebase/firestore';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/utils/supabase';
 import { generateInvoiceId } from '@/utils/invoice';
 import { FaArrowLeft, FaShoppingCart, FaPlus } from 'react-icons/fa';
 import ProductCard from '@/components/ProductCard';
@@ -10,31 +10,32 @@ import Link from 'next/link';
 import Image from 'next/image';
 
 // Helper untuk generate shipping address dari struktur user register baru
-const getShippingAddress = (userData) => {
+const getShippingAddress = (userData, router) => {
+  const profile = userData?.profile || {};
   // Gabungkan street + area jadi address
-  const street = userData.street || '';
-  const area = userData.area || {};
+  const street = userData.street || profile.street || '';
+  const area = userData.area || profile.area || {};
   const addressParts = [
     street,
     area.name,
     area.city_name,
-    userData.district || area.district,
+    userData.district || profile.district || area.district,
     area.province,
     area.postal_code
   ].filter(Boolean);
   const address = addressParts.join(', ');
 
   // Gunakan area_id dari userData.area jika ada, jika tidak fallback ke userData.area_id
-  const areaId = area.area_id || userData.area_id || area.id || '';
+  const areaId = area.area_id || userData.area_id || profile.area_id || area.id || '';
 
   return {
-    receiver_name: userData.buyerName || userData.name || '',
-    phone: userData.phone || area.phone || '',
+    receiver_name: userData.buyer_name || userData.buyerName || userData.name || profile.name || '',
+    phone: userData.phone || profile.phone || area.phone || '',
     address: address,
-    city: area.city_name || userData.city || '',
-    province: area.province || userData.province || '',
-    district: userData.district || area.district || '',
-    postal_code: area.postal_code || userData.postal_code || '',
+    city: area.city_name || userData.city || profile.city || '',
+    province: area.province || userData.province || profile.province || '',
+    district: userData.district || profile.district || area.district || '',
+    postal_code: area.postal_code || userData.postal_code || profile.postal_code || '',
     area_id: areaId,
     email: userData.email || area.email || '',
     notes: area.notes || null,
@@ -93,6 +94,7 @@ function applyPricingToCartItems(items) {
 const CartPage = () => {
   const router = useRouter();
   const { cartid } = router.query;
+  const { user } = useAuth();
 
   const [cartItems, setCartItems] = useState([]);
   const [selectedKeys, setSelectedKeys] = useState([]);
@@ -109,7 +111,6 @@ const CartPage = () => {
 
   useEffect(() => {
     const fetchCart = async () => {
-      const user = auth.currentUser;
       if (!user) {
         router.push('/login');
         return;
@@ -117,20 +118,18 @@ const CartPage = () => {
       if (!cartid) return;
 
       try {
-        const cartRef = doc(firestore, 'carts', cartid);
-        const cartSnap = await getDoc(cartRef);
-        if (!cartSnap.exists()) {
+        if (user.id !== cartid) {
           router.push('/');
           return;
         }
-        if (user.uid !== cartid) {
-          router.push('/');
-          return;
-        }
-        setUserId(user.uid);
-
-        const cartData = cartSnap.data();
-        const items = cartData.items || [];
+        const { data: cartData, error } = await supabase
+          .from('carts')
+          .select('*')
+          .eq('user_id', cartid)
+          .maybeSingle();
+        if (error) throw error;
+        setUserId(user.id);
+        const items = cartData?.items || [];
         setCartItems(applyPricingToCartItems(items));
       } catch (err) {
         console.error('Gagal ambil keranjang:', err);
@@ -138,17 +137,13 @@ const CartPage = () => {
       setLoading(false);
     };
     fetchCart();
-  }, [cartid, router]);
+  }, [cartid, router, user]);
 
   useEffect(() => {
     const fetchVouchers = async () => {
       try {
-        const snap = await getDocs(collection(firestore, 'vouchers'));
-        const list = snap.docs.map(d => ({
-          id: d.id,
-          ...d.data()
-        }));
-        setVoucherList(list);
+        const { data } = await supabase.from('vouchers').select('*').eq('active', true);
+        setVoucherList(data || []);
       } catch (e) {
         console.error('Gagal ambil voucher', e);
       }
@@ -156,16 +151,21 @@ const CartPage = () => {
     fetchVouchers();
   }, []);
 
-  // Fetch rekomendasi produk (ambil 16 produk random)
+  // Fetch rekomendasi produk
   useEffect(() => {
     const fetchRecommend = async () => {
       try {
-        const snap = await getDocs(collection(firestore, 'products'));
-        let list = snap.docs.map(d => ({
+        const { data } = await supabase.from('products').select('id,name,price_retail,price_wholesale,images,product_slug,category_slug').limit(32);
+        let list = (data || []).map(d => ({
           id: d.id,
-          ...d.data()
+          name: d.name,
+          price: d.price_retail,
+          priceRetail: d.price_retail,
+          priceWholesale: d.price_wholesale,
+          image: Array.isArray(d.images) ? d.images[0] : d.images,
+          productSlug: d.product_slug,
+          categorySlug: d.category_slug,
         }));
-        // Shuffle
         for (let i = list.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [list[i], list[j]] = [list[j], list[i]];
@@ -182,8 +182,8 @@ const CartPage = () => {
   useEffect(() => {
     const fetchBanners = async () => {
       try {
-        const snap = await getDocs(collection(firestore, 'banners'));
-        setBannerList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const { data } = await supabase.from('banners').select('*').eq('active', true);
+        setBannerList(data || []);
       } catch (e) {
         setBannerList([]);
       }
@@ -249,13 +249,11 @@ const CartPage = () => {
       };
     }));
 
-    // Sinkron Firestore
+    // Sinkron Supabase
     try {
-      const cartRef = doc(firestore, 'carts', cartid);
-      const snap = await getDoc(cartRef);
-      if (!snap.exists()) return;
-      const data = snap.data();
-      const items = (data.items || []).map((it, idx) => {
+      const { data: cartData } = await supabase.from('carts').select('items').eq('user_id', cartid).single();
+      if (!cartData) return;
+      const items = (cartData.items || []).map((it, idx) => {
         const k = getKey(it, idx);
         if (k !== key) return it;
         const { unitPrice, mode, appliedMinQty } = computeUnitPrice(it, newQty);
@@ -268,7 +266,7 @@ const CartPage = () => {
           wholesaleMinApplied: appliedMinQty ?? it.wholesaleMinApplied ?? null
         };
       });
-      await updateDoc(cartRef, { items });
+      await supabase.from('carts').update({ items }).eq('user_id', cartid);
     } catch (e) {
       console.error('Gagal update qty', e);
     }
@@ -279,15 +277,10 @@ const CartPage = () => {
     setCartItems(prev => prev.filter((it, idx) => getKey(it, idx) !== key));
 
     try {
-      const cartRef = doc(firestore, 'carts', cartid);
-      const snap = await getDoc(cartRef);
-      if (!snap.exists()) return;
-      const data = snap.data();
-      const itemsBefore = data.items || [];
-      const removedItem = itemsBefore.find((it, idx) => getKey(it, idx) === key);
-      const itemsAfter = itemsBefore.filter((it, idx) => getKey(it, idx) !== key);
-      // Re-apply pricing (kalau qty item lain berubah tidak, tapi konsisten format)
-      await updateDoc(cartRef, { items: applyPricingToCartItems(itemsAfter) });
+      const { data: cartData } = await supabase.from('carts').select('items').eq('user_id', cartid).single();
+      if (!cartData) return;
+      const itemsAfter = (cartData.items || []).filter((it, idx) => getKey(it, idx) !== key);
+      await supabase.from('carts').update({ items: applyPricingToCartItems(itemsAfter) }).eq('user_id', cartid);
     } catch (e) {
       console.error('Gagal hapus item', e);
     }
@@ -312,8 +305,8 @@ const CartPage = () => {
     }
 
     const now = new Date();
-    const start = v.startDate?.seconds ? new Date(v.startDate.seconds * 1000) : (v.startDate ? new Date(v.startDate) : null);
-    const end = v.endDate?.seconds ? new Date(v.endDate.seconds * 1000) : (v.endDate ? new Date(v.endDate) : null);
+    const start = v.start_date ? new Date(v.start_date) : (v.startDate?.seconds ? new Date(v.startDate.seconds * 1000) : (v.startDate ? new Date(v.startDate) : null));
+    const end = v.end_date ? new Date(v.end_date) : (v.endDate?.seconds ? new Date(v.endDate.seconds * 1000) : (v.endDate ? new Date(v.endDate) : null));
     if ((start && now < start) || (end && now > end)) {
       setVoucherError('Voucher di luar periode.');
       return;
@@ -347,22 +340,19 @@ const CartPage = () => {
     }
 
     try {
-      const cartRef = doc(firestore, 'carts', cartid);
-      const cartSnap = await getDoc(cartRef);
-      if (!cartSnap.exists()) {
+      const { data: cartDoc } = await supabase.from('carts').select('*').eq('user_id', cartid).single();
+      if (!cartDoc) {
         alert('Cart tidak ditemukan.');
         return;
       }
-      const cartDoc = cartSnap.data();
 
-      const buyerId = userId || cartDoc.userId || cartid;
+      const buyerId = userId || cartDoc.user_id || cartid;
 
       // Ambil user
       let userData = {};
       if (buyerId) {
-        const userRef = doc(firestore, 'users', buyerId);
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) userData = userSnap.data();
+        const { data: ud } = await supabase.from('users').select('*').eq('id', buyerId).single();
+        if (ud) userData = ud;
       }
 
       // Items terpilih
@@ -403,7 +393,6 @@ const CartPage = () => {
       });
 
       const subtotal = selectedItems.reduce((s, i) => s + i.subtotal, 0);
-      const totalWeight = selectedItems.reduce((s, i) => s + (i.weight * i.quantity), 0);
 
       let voucherObj = null;
       if (voucherApplied && voucherDiscount > 0) {
@@ -426,45 +415,37 @@ const CartPage = () => {
         }
       }
 
-      const shippingAddress = getShippingAddress(userData);
+      const shippingAddress = getShippingAddress(userData, router);
       if (!shippingAddress.area_id) {
-        alert('Alamat (area) belum lengkap di profil. Lengkapi alamat utama terlebih dahulu.');
+        router.push(`/account/address?returnTo=${encodeURIComponent(router.asPath)}`);
         return;
       }
 
       const invoiceId = generateInvoiceId();
 
       const invoiceData = {
-        invoiceId,
-        cartId: cartid,
-        buyerId,
-        buyerName: userData.buyerName || userData.name || '',
-        buyerEmail: userData.email || '',
-        buyerPhone: userData.phone || '',
-        shippingAddress,
-        destinationAreaId: shippingAddress.area_id,
+        id: invoiceId,
+        buyer_id: buyerId,
+        buyer_name: shippingAddress.receiver_name,
+        buyer_email: userData.email || '',
+        buyer_phone: shippingAddress.phone,
+        shipping_address: shippingAddress,
         items: selectedItems,
         subtotal,
-        totalWeight,
-        totalQuantity: selectedItems.reduce((s, i) => s + i.quantity, 0),
-        voucher: voucherObj,
-        voucherDiscount: voucherObj ? voucherObj.discountApplied : 0,
-        shippingCost: 0,
-        grandTotal: subtotal - (voucherObj ? voucherObj.discountApplied : 0),
+        voucher_code: voucherObj?.code || null,
+        discount_amount: voucherObj?.discountApplied || 0,
+        shipping_cost: 0,
+        grand_total: subtotal - (voucherObj?.discountApplied || 0),
         status: 'draft',
-        payment: {
-          gateway: 'xendit',
-          status: 'not_initiated',
-        },
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        payment_gateway: 'midtrans',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       };
 
-      await setDoc(doc(firestore, 'invoices', invoiceId), invoiceData);
+      const { error: invInsertErr } = await supabase.from('invoices').insert(invoiceData);
+      if (invInsertErr) throw new Error('Gagal membuat invoice: ' + invInsertErr.message);
 
-      // Jangan hapus item dari keranjang, tapi tandai dengan pendingInvoiceId
-      // agar tidak hilang jika user kembali dari halaman pembayaran.
-      // Item akan dihapus secara otomatis saat pembayaran berhasil (di payment page).
+      // Tandai item dengan pendingInvoiceId
       const selectedKeySet = new Set(selectedKeys);
       const updatedItems = cartItems.map((it, idx) => {
         if (selectedKeySet.has(getKey(it, idx))) {
@@ -473,7 +454,7 @@ const CartPage = () => {
         return it;
       });
 
-      await updateDoc(cartRef, { items: applyPricingToCartItems(updatedItems) });
+      await supabase.from('carts').update({ items: applyPricingToCartItems(updatedItems) }).eq('user_id', cartid);
       // Tidak perlu setCartItems karena kita akan langsung pindah ke halaman pembayaran
 
       router.push(`/product/payment/${invoiceId}`);

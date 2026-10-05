@@ -1,11 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { useAuth } from '@/context/AuthContext';
 import { useDiscounts } from '@/context/DiscountContext';
 import { getEffectiveProductSlug } from '@/utils/productSlug';
-import { firestore, auth } from '@/utils/firebase';
-import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+
 import ProductFilterBar from '@/components/ProductFilterBar';
 import { computeAvailableFilters, applyProductFilters } from '@/utils/productFilters';
 
@@ -32,8 +32,8 @@ function useProductPrice(product) {
       .filter(n => n > 0);
     baseMinPrice = prices.length ? Math.min(...prices) : 0;
   } else {
-    const retail = Number(product.priceRetail || product.price || 0);
-    const wholesale = Number(product.priceWholesale || product.price || 0);
+    const retail = Number(product.price_retail || product.price || 0);
+    const wholesale = Number(product.price_wholesale || product.price || 0);
     const prices = [retail, wholesale].filter(n => n > 0);
     baseMinPrice = prices.length ? Math.min(...prices) : 0;
   }
@@ -50,44 +50,50 @@ function getFirstImage(product) {
   return '/placeholder.png';
 }
 
-// ─── MOBILE CARD ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ MOBILE CARD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const MobileCard = ({ product, currentProductId, cartItems }) => {
   const [qty, setQty] = useState(1);
   const [adding, setAdding] = useState(false);
   const router = useRouter();
+  const { user } = useAuth();
   const { discount, baseMinPrice, finalMin } = useProductPrice(product);
   const isCurrent = product.id === currentProductId;
   const imageSrc = getFirstImage(product);
   const slug = getEffectiveProductSlug(product, product.id);
 
   const handleBuy = async () => {
-    const user = auth.currentUser;
     if (!user) {
       if (typeof window !== 'undefined') localStorage.setItem('redirectAfterLogin', router.asPath);
       return router.push('/login');
     }
+    const uid = user.id || user.uid;
     setAdding(true);
     try {
-      const cartRef = doc(firestore, 'carts', user.uid);
-      const cartSnap = await getDoc(cartRef);
-      let items = cartSnap.exists() ? (cartSnap.data().items || []) : [];
+      const { data: cartRow } = await supabase
+        .from('carts')
+        .select('items')
+        .eq('user_id', uid)
+        .maybeSingle();
+      let items = cartRow?.items || [];
       const idx = items.findIndex(i => i.productId === product.id);
       const newItem = {
         productId: product.id,
         name: product.name,
-        priceRetail: Number(product.priceRetail || baseMinPrice),
-        priceWholesale: Number(product.priceWholesale || baseMinPrice),
+        price_retail: Number(product.price_retail || baseMinPrice),
+        price_wholesale: Number(product.price_wholesale || baseMinPrice),
         price: finalMin,
         quantity: qty,
         image: imageSrc !== '/placeholder.png' ? imageSrc : '',
         weight: Number(product.weight) || 0,
-        buyerName: user.displayName || 'Pembeli',
+        buyerName: user.user_metadata?.name || 'Pembeli',
         sellerName: 'Purodenka',
         sellerLogo: '/logo.png',
-        buyerId: user.uid
+        buyerId: uid
       };
       if (idx >= 0) items[idx].quantity += qty; else items.push(newItem);
-      await setDoc(cartRef, { items });
+      await supabase
+        .from('carts')
+        .upsert({ user_id: uid, items }, { onConflict: 'user_id' });
       setTimeout(() => setAdding(false), 1000);
     } catch (error) {
       console.error(error);
@@ -138,7 +144,7 @@ const MobileCard = ({ product, currentProductId, cartItems }) => {
           <button
             onClick={() => setQty(Math.max(1, qty - 1))}
             className="w-9 h-9 flex items-center justify-center text-gray-600 font-bold text-lg hover:bg-gray-100 active:bg-gray-200"
-          >−</button>
+          >âˆ’</button>
           <span className="w-10 text-center text-sm font-semibold select-none">{qty}</span>
           <button
             onClick={() => setQty(qty + 1)}
@@ -150,51 +156,57 @@ const MobileCard = ({ product, currentProductId, cartItems }) => {
           disabled={adding}
           className="flex-1 h-9 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-semibold text-sm rounded-lg disabled:opacity-50 transition-colors"
         >
-          {adding ? '✓ Ditambahkan' : '+ Keranjang'}
+          {adding ? 'âœ“ Ditambahkan' : '+ Keranjang'}
         </button>
       </div>
     </div>
   );
 };
 
-// ─── DESKTOP TABLE ROW ──────────────────────────────────────────────────────────
+// â”€â”€â”€ DESKTOP TABLE ROW â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const TableRow = ({ product, currentProductId, cartItems }) => {
   const [qty, setQty] = useState(1);
   const [adding, setAdding] = useState(false);
   const router = useRouter();
+  const { user } = useAuth();
   const { discount, baseMinPrice, finalMin } = useProductPrice(product);
   const isCurrent = product.id === currentProductId;
   const imageSrc = getFirstImage(product);
   const slug = getEffectiveProductSlug(product, product.id);
 
   const handleBuy = async () => {
-    const user = auth.currentUser;
     if (!user) {
       if (typeof window !== 'undefined') localStorage.setItem('redirectAfterLogin', router.asPath);
       return router.push('/login');
     }
+    const uid = user.id || user.uid;
     setAdding(true);
     try {
-      const cartRef = doc(firestore, 'carts', user.uid);
-      const cartSnap = await getDoc(cartRef);
-      let items = cartSnap.exists() ? (cartSnap.data().items || []) : [];
+      const { data: cartRow } = await supabase
+        .from('carts')
+        .select('items')
+        .eq('user_id', uid)
+        .maybeSingle();
+      let items = cartRow?.items || [];
       const idx = items.findIndex(i => i.productId === product.id);
       const newItem = {
         productId: product.id,
         name: product.name,
-        priceRetail: Number(product.priceRetail || baseMinPrice),
-        priceWholesale: Number(product.priceWholesale || baseMinPrice),
+        price_retail: Number(product.price_retail || baseMinPrice),
+        price_wholesale: Number(product.price_wholesale || baseMinPrice),
         price: finalMin,
         quantity: qty,
         image: imageSrc !== '/placeholder.png' ? imageSrc : '',
         weight: Number(product.weight) || 0,
-        buyerName: user.displayName || 'Pembeli',
+        buyerName: user.user_metadata?.name || 'Pembeli',
         sellerName: 'Purodenka',
         sellerLogo: '/logo.png',
-        buyerId: user.uid
+        buyerId: uid
       };
       if (idx >= 0) items[idx].quantity += qty; else items.push(newItem);
-      await setDoc(cartRef, { items });
+      await supabase
+        .from('carts')
+        .upsert({ user_id: uid, items }, { onConflict: 'user_id' });
       setTimeout(() => setAdding(false), 1000);
     } catch (error) {
       console.error(error);
@@ -256,14 +268,14 @@ const TableRow = ({ product, currentProductId, cartItems }) => {
           disabled={adding}
           className="bg-orange-500 hover:bg-orange-600 text-white font-medium text-sm px-5 py-1.5 rounded disabled:opacity-50 transition-colors whitespace-nowrap"
         >
-          {adding ? '✓ Ditambahkan' : '+ Keranjang'}
+          {adding ? 'âœ“ Ditambahkan' : '+ Keranjang'}
         </button>
       </td>
     </tr>
   );
 };
 
-// ─── MAIN EXPORT ─────────────────────────────────────────────────────────────────
+// â”€â”€â”€ MAIN EXPORT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function SubcategoryProductTable({ products, currentProductId }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [phaseFilter, setPhaseFilter] = useState(''); // '', '1P', '2P', '3P', '4P'
@@ -273,24 +285,7 @@ export default function SubcategoryProductTable({ products, currentProductId }) 
   const [voltageFilter, setVoltageFilter] = useState(''); // '', '220VAC', '48VAC'
   const [cartItems, setCartItems] = useState([]);
   
-  useEffect(() => {
-    let unsubscribeCart = () => {};
-    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
-      if (user) {
-        const cartRef = doc(firestore, 'carts', user.uid);
-        unsubscribeCart = onSnapshot(cartRef, (snap) => {
-          if (snap.exists()) setCartItems(snap.data().items || []);
-          else setCartItems([]);
-        });
-      } else {
-        setCartItems([]);
-      }
-    });
-    return () => {
-      unsubscribeAuth();
-      unsubscribeCart();
-    };
-  }, []);
+
   
   if (!products || products.length === 0) return null;
 
@@ -347,7 +342,7 @@ export default function SubcategoryProductTable({ products, currentProductId }) 
         />
       </div>
 
-      {/* ── MOBILE: Card list (< md) ── */}
+      {/* â”€â”€ MOBILE: Card list (< md) â”€â”€ */}
       <div className="flex flex-col gap-3 md:hidden max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
         {filtered.length > 0 ? (
           filtered.map(p => (
@@ -360,7 +355,7 @@ export default function SubcategoryProductTable({ products, currentProductId }) 
         )}
       </div>
 
-      {/* ── DESKTOP: Table (≥ md) ── */}
+      {/* â”€â”€ DESKTOP: Table (â‰¥ md) â”€â”€ */}
       <div className="hidden md:block rounded-lg border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <div className="max-h-[580px] overflow-y-auto custom-scrollbar relative">
@@ -420,3 +415,4 @@ export default function SubcategoryProductTable({ products, currentProductId }) 
     </div>
   );
 }
+

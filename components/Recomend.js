@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faWandMagicSparkles } from '@fortawesome/free-solid-svg-icons';
-import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
-import { firestore } from '@/utils/firebase';
+import { supabase } from '@/utils/supabase';
 import ProductCard from '@/components/ProductCard';
 
 // Recomend: shows products with the lowest sales, randomly picked.
@@ -19,7 +18,7 @@ export default function Recomend({ items: initialItems = [] }) {
     'akuarium','aquarium','aquascape','ikan','fish','koi','guppy','cupang','manfish','cichlid','platy','udang','shrimp','pakan','tank','substrat','aerator','filter kolam','heater aquarium','filter aquarium','pompa udara','hias air'
   ];
   const isExcluded = (p) => {
-    const blob = [p?.category, p?.categorySlug, p?.name, p?.productSlug]
+    const blob = [p?.category, p?.category_slug, p?.name, p?.product_slug]
       .filter(Boolean)
       .join(' ')?.toLowerCase() || '';
     return excludeKeywords.some(k => blob.includes(k));
@@ -46,9 +45,13 @@ export default function Recomend({ items: initialItems = [] }) {
     let mounted = true;
     (async () => {
       try {
-        const q = query(collection(firestore, 'products'), orderBy('sold', 'asc'), limit(100));
-        const snap = await getDocs(q);
-        const arr = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const { data, error } = await supabase
+          .from('products')
+          .select('*')
+          .order('sold', { ascending: true })
+          .limit(100);
+        if (error) throw error;
+        const arr = (data || []).map(d => ({ ...d }));
         const pool = arr
           .filter(p => !isExcluded(p))
           .map(p => ({ ...p, sold: Number(p.sold) || 0 }));

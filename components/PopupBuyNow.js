@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { firestore } from '@/utils/firebase';
+import { supabase } from '@/utils/supabase';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/router';
 import Image from 'next/image';
@@ -92,13 +91,14 @@ const PopupBuyNow = ({ show, onClose, product, userId, buyerName }) => {
       return;
     }
     setIsProcessing(true);
-    const userCartRef = doc(firestore, 'carts', userId);
     let cartItems = [];
     try {
-      const cartSnap = await getDoc(userCartRef);
-      if (cartSnap.exists()) {
-        cartItems = cartSnap.data()?.items || [];
-      }
+      const { data: cartRow } = await supabase
+        .from('carts')
+        .select('items')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (cartRow) cartItems = cartRow.items || [];
 
       const variantLabel = hasVariants && variant.size ? `${variant.size}cm` : '';
       const priceMode = isWholesaleQty ? 'wholesale' : 'retail';
@@ -163,7 +163,9 @@ const PopupBuyNow = ({ show, onClose, product, userId, buyerName }) => {
         });
       }
 
-      await setDoc(userCartRef, { items: cartItems }, { merge: true });
+      await supabase
+        .from('carts')
+        .upsert({ user_id: userId, items: cartItems }, { onConflict: 'user_id' });
       setTimeout(() => {
         setIsProcessing(false);
         onClose();

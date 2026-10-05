@@ -1,8 +1,7 @@
-import { useRouter } from 'next/router';
+﻿import { useRouter } from 'next/router';
 import { useEffect, useState, useMemo } from 'react';
 import ProductCard from '@/components/ProductCard';
-import { collection, getDocs } from 'firebase/firestore';
-import { firestore } from '@/utils/firebase';
+import { supabase } from '@/utils/supabase';
 import { FaArrowLeft, FaSearch, FaSortAlphaDown, FaSortAmountUp, FaSortAmountDown, FaFire, FaRegClock } from 'react-icons/fa';
 import PopupCart from '@/components/PopupCart';
 import Fuse from 'fuse.js';
@@ -38,10 +37,9 @@ const SearchPage = () => {
     const fetchAllProducts = async () => {
       setLoading(true);
       try {
-        const productsCol = collection(firestore, 'products');
-        const productsSnapshot = await getDocs(productsCol);
-        const productsData = productsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setAllProducts(productsData);
+        const { data, error } = await supabase.from('products').select('*');
+        if (error) throw error;
+        setAllProducts(data || []);
       } catch (err) {
         console.error("Gagal mengambil data produk", err);
       } finally {
@@ -188,7 +186,7 @@ const SearchPage = () => {
                 className={`px-4 py-1.5 rounded-full whitespace-nowrap transition-colors flex items-center gap-2 border ${sortBy === 'az' ? 'bg-red-600 text-white border-red-600 shadow' : 'bg-white text-gray-600 border-gray-200 hover:bg-red-50'}`}
               >
                 <FaSortAlphaDown />
-                <span>A — Z</span>
+                <span>A â€” Z</span>
               </button>
               
               <button 
@@ -259,3 +257,4 @@ const SearchPage = () => {
 };
 
 export default SearchPage;
+

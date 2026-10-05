@@ -3,5 +3,11 @@
     "env": {
       "NPM_FLAGS": "--legacy-peer-deps"
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/admin/cleanup-labels",
+      "schedule": "0 2 * * *"
+    }
+  ]
 }

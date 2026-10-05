@@ -1,22 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot } from 'firebase/firestore';
-import { firestore } from '@/utils/firebase';
-
-/*
-  DiscountContext
-  - Subscribes to categories collection and builds a mapping of active discounts per category.
-  - Expected category doc fields (optional):
-      - discountPercent: number (0-100)
-      - discountActive: boolean
-      - discountStart: Timestamp | number | string date
-      - discountEnd: Timestamp | number | string date
-  - Active rule: discountActive true AND now within [start,end] if provided.
-  - Keys provided: category slug and name (both lowercased) to be robust against product.category storing either.
-*/
+import { supabase } from '@/utils/supabase';
 
 const DiscountContext = createContext({
   map: {},
-  // helper to get active discount for a category key (slug or name)
   getFor: () => 0
 });
 
@@ -24,32 +10,30 @@ export function DiscountProvider({ children }) {
   const [map, setMap] = useState({});
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(firestore, 'categories'), (snap) => {
-      const now = Date.now();
-      const m = {};
-      snap.forEach((d) => {
-        const data = d.data() || {};
-        const percent = Number(data.discountPercent) || 0;
-        const activeFlag = data.discountActive === true || (data.discountActive === undefined && percent > 0);
-        const start = data.discountStart?.toDate?.() ? data.discountStart.toDate().getTime() : (
-          typeof data.discountStart === 'number' ? data.discountStart : (data.discountStart ? Date.parse(data.discountStart) : undefined)
-        );
-        const end = data.discountEnd?.toDate?.() ? data.discountEnd.toDate().getTime() : (
-          typeof data.discountEnd === 'number' ? data.discountEnd : (data.discountEnd ? Date.parse(data.discountEnd) : undefined)
-        );
-        let within = true;
-        if (start && now < start) within = false;
-        if (end && now > end) within = false;
-        const isActive = activeFlag && within && percent > 0 && percent <= 90;
-        if (!isActive) return;
-        const slug = (data.slug || '').toString().toLowerCase();
-        const name = (data.name || '').toString().toLowerCase();
-        if (slug) m[slug] = percent;
-        if (name) m[name] = percent;
-      });
-      setMap(m);
-    }, () => setMap({}));
-    return () => unsub && unsub();
+    supabase.from('categories')
+      .select('slug, discount_percent, discount_active, discount_start, discount_end')
+      .eq('discount_active', true)
+      .then(({ data }) => {
+        if (!data) { setMap({}); return; }
+        const now = new Date();
+        const m = {};
+        data.forEach(cat => {
+          const slug = (cat.slug || '').toLowerCase();
+          if (!slug) return;
+          const percent = Number(cat.discount_percent) || 0;
+          if (percent <= 0) return;
+          // Check time range if set
+          if (cat.discount_start || cat.discount_end) {
+            const start = cat.discount_start ? new Date(cat.discount_start) : null;
+            const end = cat.discount_end ? new Date(cat.discount_end) : null;
+            if (start && now < start) return;
+            if (end && now > end) return;
+          }
+          m[slug] = percent;
+        });
+        setMap(m);
+      })
+      .catch(() => setMap({}));
   }, []);
 
   const api = useMemo(() => ({

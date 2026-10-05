@@ -8,20 +8,22 @@ import ProductSidebar from '@/components/ProductSidebar';
 import MiniNavbar from '@/components/MiniNavbar';
 import ProductFilterBar from '@/components/ProductFilterBar';
 import { computeAvailableFilters, applyProductFilters } from '@/utils/productFilters';
+import { supabaseAdmin } from '@/utils/supabaseAdmin';
 
 import Head from 'next/head';
 import { FaChevronDown } from 'react-icons/fa';
 
 export async function getStaticPaths() {
-  // Pre-render a small set of known categories; the rest are generated on-demand
   try {
-    const { adminDb } = await import('@/utils/firebaseAdmin');
-    const catSnap = await adminDb.collection('categories').get();
-    const paths = [];
-    catSnap.forEach((doc) => {
-      const slug = doc.data().slug || doc.id;
-      if (slug) paths.push({ params: { category: slug } });
-    });
+    const { data: categories } = await supabaseAdmin
+      .from('categories')
+      .select('slug')
+      .is('parent_id', null);
+    
+    const paths = (categories || []).map(c => ({
+      params: { category: c.slug }
+    }));
+    
     return { paths, fallback: 'blocking' };
   } catch (e) {
     console.error('[getStaticPaths] categories:', e);
@@ -33,27 +35,51 @@ export async function getStaticProps({ params }) {
   const { category } = params;
 
   try {
-    const { adminDb } = await import('@/utils/firebaseAdmin');
-    const snap = await adminDb.collection('products').where('categorySlug', '==', category).get();
-    const products = snap.docs.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        ...data,
-        // Pastikan semua field serializable
-        createdAt: data.createdAt?.toDate?.().toISOString?.() || null,
-      };
-    });
+    // Get products by category_slug
+    const { data: productRows } = await supabaseAdmin
+      .from('products')
+      .select('*')
+      .eq('category_slug', category);
 
+    const products = (productRows || []).map(p => ({
+      id: p.id,
+      name: p.name,
+      slug: p.slug,
+      product_slug: p.product_slug,
+      category: p.category,
+      categorySlug: p.category_slug,
+      subCategory: p.sub_category,
+      subCategorySlug: p.sub_category_slug,
+      description: p.description,
+      images: p.images || [],
+      price: p.price,
+      priceRetail: p.price_retail,
+      priceWholesale: p.price_wholesale,
+      minWholesale: p.min_wholesale,
+      stock: p.stock,
+      weight: p.weight,
+      sold: p.sold,
+      discount: p.discount,
+      rating: p.rating,
+      sizeVariants: p.size_variants || [],
+      createdAt: p.created_at || null,
+    }));
+
+    // Get category data
     let categoryData = null;
-    const catSnap = await adminDb.collection('categories').where('slug', '==', category).get();
-    if (!catSnap.empty) {
-      const cData = catSnap.docs[0].data();
+    const { data: catRow } = await supabaseAdmin
+      .from('categories')
+      .select('*')
+      .eq('slug', category)
+      .is('parent_id', null)
+      .single();
+    
+    if (catRow) {
       categoryData = {
-        id: catSnap.docs[0].id,
-        name: cData.name || null,
-        slug: cData.slug || null,
-        banner: cData.banner || null
+        id: catRow.id,
+        name: catRow.name || null,
+        slug: catRow.slug || null,
+        banner: catRow.banner || null
       };
     }
 
@@ -140,11 +166,11 @@ export default function CategoryPage({ category, products, categoryData }) {
     );
   }, [products, subCategoryFilter]);
 
-  // Compute which product filters are available for the selected subcategory
+  // Compute which product filters are available
   const filterMeta = useMemo(() => {
-    if (!subCategoryFilter) return { hasPhase: false, isMCCB: false, isLC1D: false, hasDisplayType: false, availablePhases: [], availableTypes: [], availableKontaktorTypes: [], availableAmperes: [], availableVoltages: [], availableDisplayTypes: [] };
-    return computeAvailableFilters(subCatProducts);
-  }, [subCatProducts, subCategoryFilter]);
+    const productsToAnalyze = subCategoryFilter ? subCatProducts : products;
+    return computeAvailableFilters(productsToAnalyze);
+  }, [products, subCatProducts, subCategoryFilter]);
 
   // Sort and filter products client-side
   const sortedProducts = useMemo(() => {
@@ -210,7 +236,7 @@ export default function CategoryPage({ category, products, categoryData }) {
         break;
     }
     return out;
-  }, [products, sortMode, subCategoryFilter, phaseFilter, typeFilter, kontaktorTypeFilter, ampereFilter, voltageFilter, displayTypeFilter]);
+  }, [products, subCatProducts, sortMode, subCategoryFilter, phaseFilter, typeFilter, kontaktorTypeFilter, ampereFilter, voltageFilter, displayTypeFilter]);
 
   return (
     <>
@@ -300,89 +326,81 @@ export default function CategoryPage({ category, products, categoryData }) {
               <div className="mb-6 w-full overflow-hidden shadow-sm flex justify-center bg-gray-50 rounded-xl">
                 <Image
                   src={categoryData.banner}
-                  alt={`Banner ${categoryData.name || readableCategory}`}
-                  width={1057}
-                  height={150}
-                  className="w-full h-auto object-cover"
+                  alt={categoryData.name || 'Category Banner'}
+                  width={800}
+                  height={200}
+                  className="w-full h-auto object-cover rounded-xl"
                   priority
                 />
               </div>
             )}
-            <h1 className="text-2xl font-bold text-red-700 mb-6 capitalize">
-              {categoryData?.name || readableCategory}
-            </h1>
 
-            {/* Mobile Category Trigger */}
-            <div className="mb-4 lg:hidden">
+            <div className="mb-4">
+              <h1 className="text-2xl font-bold text-gray-800 mb-2">
+                {categoryData?.name || readableCategory}
+              </h1>
+              <p className="text-sm text-gray-600">
+                {subCategoryFilter
+                  ? `Filter: ${subCategoryFilter.replace(/-/g, ' ')}`
+                  : `Menampilkan semua subkategori dari ${categoryData?.name || readableCategory}`}
+              </p>
+            </div>
+
+            {/* Mobile Filter Toggle Button */}
+            <div className="lg:hidden mb-4">
               <button
                 onClick={() => setIsMobileSidebarOpen(true)}
-                className="flex items-center justify-between gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm font-semibold text-gray-700 shadow-sm active:scale-[0.98] transition-all w-full sm:w-auto cursor-pointer"
+                className="w-full flex items-center justify-between px-4 py-3 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50 transition"
               >
-                <span>Sub Kategori: {subCategoryFilter ? subCategoryFilter.replace(/-/g, ' ') : 'Semua'}</span>
-                <FaChevronDown size={10} className="text-gray-400" />
+                <span className="text-sm font-medium text-gray-700">Filter Kategori</span>
+                <FaChevronDown className="text-gray-500" />
               </button>
             </div>
 
-            <ProductSortBar
-              activeSort={sortMode}
-              onSortChange={(mode) => setSortMode(mode)}
-              totalCount={sortedProducts.length}
-            />
-
-            {/* Filter tags (visual cue for selected subcategory) */}
-            {subCategoryFilter && (
-              <div className="mb-4 flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-gray-500 font-medium">Filter Aktif:</span>
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-700 text-xs font-semibold rounded-full border border-red-100">
-                  {subCategoryFilter.replace(/-/g, ' ')}
-                  <button 
-                    onClick={() => {
-                      router.push(`/category/${category}`, undefined, { shallow: true });
-                    }}
-                    className="hover:text-red-900 font-bold ml-1 cursor-pointer focus:outline-none"
-                  >
-                    ×
-                  </button>
-                </span>
-              </div>
-            )}
-
-            {/* Product Filters (Phase, Type, Ampere, Voltage) — hanya muncul saat sub kategori dipilih */}
-            {subCategoryFilter && (
+            {/* Product Filter Bar */}
+            {(filterMeta.hasPhase || filterMeta.isMCCB || filterMeta.isLC1D || filterMeta.hasDisplayType) && (
               <ProductFilterBar
-                {...filterMeta}
+                hasPhase={filterMeta.hasPhase}
+                isMCCB={filterMeta.isMCCB}
+                isLC1D={filterMeta.isLC1D}
+                hasDisplayType={filterMeta.hasDisplayType}
+                availablePhases={filterMeta.availablePhases}
+                availableTypes={filterMeta.availableTypes}
+                availableKontaktorTypes={filterMeta.availableKontaktorTypes}
+                availableAmperes={filterMeta.availableAmperes}
+                availableVoltages={filterMeta.availableVoltages}
+                availableDisplayTypes={filterMeta.availableDisplayTypes}
                 phaseFilter={phaseFilter}
-                typeFilter={typeFilter}
-                kontaktorTypeFilter={kontaktorTypeFilter}
-                ampereFilter={ampereFilter}
-                voltageFilter={voltageFilter}
-                displayTypeFilter={displayTypeFilter}
                 setPhaseFilter={setPhaseFilter}
+                typeFilter={typeFilter}
                 setTypeFilter={setTypeFilter}
+                kontaktorTypeFilter={kontaktorTypeFilter}
                 setKontaktorTypeFilter={setKontaktorTypeFilter}
+                ampereFilter={ampereFilter}
                 setAmpereFilter={setAmpereFilter}
+                voltageFilter={voltageFilter}
                 setVoltageFilter={setVoltageFilter}
+                displayTypeFilter={displayTypeFilter}
                 setDisplayTypeFilter={setDisplayTypeFilter}
               />
             )}
 
+            <ProductSortBar sortMode={sortMode} setSortMode={setSortMode} />
+
             {sortedProducts.length === 0 ? (
-              <p className="text-center text-lg text-gray-600">
-                Tidak ada produk untuk kategori &quot;{readableCategory}&quot;
-              </p>
+              <div className="text-center py-12">
+                <p className="text-gray-500">Tidak ada produk ditemukan.</p>
+              </div>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {sortedProducts.map((product) => (
-                  <div key={product.id} className="block hover:bg-red-50 rounded-lg transition">
-                    <ProductCard product={product} />
-                  </div>
+              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+                {sortedProducts.map(product => (
+                  <ProductCard key={product.id} product={product} />
                 ))}
               </div>
             )}
           </div>
         </div>
       </main>
-     
     </>
   );
 }

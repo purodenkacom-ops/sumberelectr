@@ -1,4 +1,4 @@
-import { adminDb } from '@/utils/firebaseAdmin';
+import { supabaseAdmin } from '@/utils/supabaseAdmin';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -24,7 +24,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'invoiceId and amount are required' });
     }
 
-    // Use REST API directly to avoid SDK compatibility issues
     const auth = Buffer.from(`${XENDIT_SECRET_KEY}:`).toString('base64');
     const payload = {
       external_id: String(invoiceId),
@@ -45,58 +44,25 @@ export default async function handler(req, res) {
     const response = await fetch('https://api.xendit.co/v2/invoices', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(payload)
     });
 
-    const text = await response.text();
-    let created;
-    try { created = JSON.parse(text); } catch { created = null; }
-
+    const data = await response.json();
     if (!response.ok) {
-      // Log detailed HTTP error for debugging 403/400
-      await adminDb.collection('webhooks_logs').add({
-        source: 'xendit', phase: 'create_invoice_http_error', createdAt: new Date(), invoiceId, status: response.status, body: created || text
-      }).catch(()=>{});
-      return res.status(response.status).json(created || { error: text });
+      return res.status(response.status).json({ error: data.message || 'Xendit API error', details: data });
     }
 
-    const { id, invoice_url, status, amount: amt } = created || {};
-    const resolvedUrl = invoice_url || created?.url || null;
+    await supabaseAdmin.from('invoices').update({
+      xendit: data,
+      updated_at: new Date().toISOString(),
+    }).eq('id', String(invoiceId));
 
-    // Persist minimal Xendit info to Firestore (best-effort)
-    try {
-      const ref = adminDb.collection('invoices').doc(String(invoiceId));
-      await ref.set({
-        paymentMethod: 'xendit',
-        updatedAt: new Date(),
-        xendit: {
-          id: id || null,
-          invoiceUrl: resolvedUrl || null,
-          status: status || 'PENDING',
-          amount: amt || Math.round(Number(amount)),
-          rawCreate: created,
-          lastCreateAt: new Date(),
-        }
-      }, { merge: true });
-    } catch (e) {
-      // Log but don’t fail the API response
-      await adminDb.collection('webhooks_logs').add({
-        source: 'xendit', phase: 'create_invoice_persist_error', createdAt: new Date(), invoiceId, error: String(e)
-      }).catch(()=>{});
-    }
-
-    return res.status(200).json({
-      id,
-      invoice_url: resolvedUrl,
-      status,
-      amount: amt || Math.round(Number(amount)),
-      raw: created,
-    });
-  } catch (e) {
-    console.error('Xendit create-invoice error', e);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(200).json(data);
+  } catch (err) {
+    console.error('Xendit create-invoice error:', err);
+    return res.status(500).json({ error: err.message || 'Internal server error' });
   }
 }

@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { firestore } from '@/utils/firebase';
+import { supabase } from '@/utils/supabase';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/router';
 import Image from 'next/image';
@@ -88,14 +87,17 @@ const PopupCart = ({ show, onClose, product, userId, buyerName }) => {
       }, 700);
       return;
     }
-    const userCartRef = doc(firestore, 'carts', userId);
+    // logged-in user cart via Supabase
     let cartItems = [];
     try {
-      const cartSnap = await getDoc(userCartRef);
-      if (cartSnap.exists()) {
-        cartItems = cartSnap.data()?.items || [];
-      }
-      // Cari item existing hanya berdasarkan productId (karena tidak ada varian)
+      const { data: cartRow, error: readError } = await supabase
+        .from('carts')
+        .select('items')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (readError) throw readError;
+      if (cartRow) cartItems = cartRow.items || [];
+
       const existingIndex = cartItems.findIndex(item => item.productId === product.id);
 
       if (existingIndex >= 0) {
@@ -127,7 +129,13 @@ const PopupCart = ({ show, onClose, product, userId, buyerName }) => {
         });
       }
 
-      await setDoc(userCartRef, { items: cartItems }, { merge: true });
+      const { error: saveError } = await supabase
+        .from('carts')
+        .upsert(
+          { user_id: userId, items: cartItems, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id' }
+        );
+      if (saveError) throw saveError;
       setIsAddedToCart(true);
       setTimeout(() => {
         setIsAddedToCart(false);

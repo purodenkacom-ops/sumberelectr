@@ -1,4 +1,4 @@
-import { adminDb } from '@/utils/firebaseAdmin';
+import { supabaseAdmin } from '@/utils/supabaseAdmin';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -13,17 +13,17 @@ export default async function handler(req, res) {
     if (!key) return res.status(500).json({ error: 'Missing BITESHIP_API_KEY' });
 
     // Ambil invoice
-    const ref = adminDb.collection('invoices').doc(invoiceId);
-    const snap = await ref.get();
-    if (!snap.exists) return res.status(404).json({ error: 'Invoice not found' });
+    const { data: inv, error: fetchErr } = await supabaseAdmin
+      .from('invoices')
+      .select('*')
+      .eq('id', invoiceId)
+      .single();
+    if (fetchErr || !inv) return res.status(404).json({ error: 'Invoice not found' });
 
-    const inv = snap.data();
-    const orderId = inv.codOrderId || inv.waybillId || inv.extra?.id;
-    // Jika tidak ada orderId Biteship tetap lanjut (soft cancel lokal)
+    const orderId = inv.biteship?.id || inv.cod_order_id || inv.waybill_id || inv.extra?.id;
     let biteshipResponse = null;
 
     if (orderId) {
-      // Endpoint pembatalan Biteship (umum: POST /v1/orders/{id}/cancel)
       const resp = await fetch(`https://api.biteship.com/v1/orders/${orderId}/cancel`, {
         method: 'POST',
         headers: {
@@ -42,20 +42,26 @@ export default async function handler(req, res) {
       biteshipResponse = json;
     }
 
-    // Arsipkan lalu hapus
-    const archiveRef = adminDb.collection('invoices_archive').doc(invoiceId);
-    await adminDb.runTransaction(async t => {
-      t.set(archiveRef, {
+    // Arsipkan
+    const { error: archiveErr } = await supabaseAdmin
+      .from('invoices_archive')
+      .insert({
         ...inv,
-        archivedAt: admin.firestore.FieldValue.serverTimestamp(),
-        archivedReasonCode: reasonCode,
-        archivedReasonText: reasonText || '',
-        archivedBy: 'admin_api',
-        biteshipCancel: biteshipResponse || null,
-        finalStatus: 'cancelled'
+        archived_at: new Date().toISOString(),
+        archived_reason_code: reasonCode,
+        archived_reason_text: reasonText || '',
+        archived_by: 'admin_api',
+        biteship_cancel: biteshipResponse || null,
+        final_status: 'cancelled'
       });
-      t.delete(ref);
-    });
+    if (archiveErr) throw new Error('Archive failed: ' + archiveErr.message);
+
+    // Hapus dari invoices
+    const { error: delErr } = await supabaseAdmin
+      .from('invoices')
+      .delete()
+      .eq('id', invoiceId);
+    if (delErr) throw new Error('Delete failed: ' + delErr.message);
 
     return res.json({
       success: true,

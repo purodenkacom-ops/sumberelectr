@@ -1,18 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
-import { auth, firestore, storage } from '../../../utils/firebase';
-import {
-  collection,
-  getDocs,
-  addDoc,
-  query,
-  deleteDoc,
-  doc,
-  getDoc,
-  setDoc,
-} from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { onAuthStateChanged } from 'firebase/auth';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/utils/supabase';
 import AdminLayout from '../_layout';
 import Image from 'next/image';
 
@@ -59,52 +48,27 @@ export default function BannerAdminPage() {
   const [editId, setEditId] = useState(null);
   const fileInputRefs = [useRef(), useRef(), useRef(), useRef(), useRef()];
 
+  const { user: authUser } = useAuth();
+
   // Auth protection
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        router.push('/login');
-        return;
-      }
-      const userRef = doc(firestore, 'users', user.uid);
-      const userSnap = await getDoc(userRef);
-      if (!userSnap.exists() || userSnap.data().role !== 'admin') {
-        router.push('/unauthorized');
-        return;
-      }
-      setUser(user);
-      setLoading(false);
-      fetchBanners();
-    });
-    return () => unsubscribe();
-  }, [router]);
+    if (!authUser) return;
+    if (authUser.role !== 'admin') { router.push('/unauthorized'); return; }
+    setUser(authUser);
+    setLoading(false);
+    fetchBanners();
+  }, [authUser, router]);
 
   const fetchBanners = async () => {
-    const q = query(collection(firestore, 'banners'));
-    const snap = await getDocs(q);
-    const list = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    setBanners(list);
+    const { data } = await supabase.from('banners').select('*').order('created_at', { ascending: false });
+    setBanners(data || []);
   };
 
   // Delete banner and images from storage
   const handleDelete = async (id) => {
     if (confirm('Delete this banner?')) {
-      const banner = banners.find((b) => b.id === id);
-      if (banner && banner.images) {
-        for (const imgUrl of banner.images || []) {
-          if (imgUrl) {
-            try {
-              const match = imgUrl.match(/\/o\/(.*?)\?/);
-              const path = match ? decodeURIComponent(match[1]) : null;
-              if (path) {
-                const imgRef = ref(storage, path);
-                await deleteObject(imgRef);
-              }
-            } catch (e) {}
-          }
-        }
-      }
-      await deleteDoc(doc(firestore, 'banners', id));
+      // Images di Cloudinary — tidak perlu delete manual (atau bisa tambah nanti)
+      await supabase.from('banners').delete().eq('id', id);
       setBanners(banners.filter((b) => b.id !== id));
     }
   };
@@ -152,38 +116,30 @@ export default function BannerAdminPage() {
     for (let i = 0; i < 5; i++) {
       if (form.images[i]) {
         const compressed = await compressImage(form.images[i]);
-        const imageRef = ref(storage, `banners/${Date.now()}_${form.images[i].name}`);
-        await uploadBytes(imageRef, compressed);
-        const url = await getDownloadURL(imageRef);
-
-        // If editing, delete old image if replaced
-        if (editId && form.existingImages[i]) {
-          try {
-            const match = form.existingImages[i].match(/\/o\/(.*?)\?/);
-            const path = match ? decodeURIComponent(match[1]) : null;
-            if (path) {
-              const imgRef = ref(storage, path);
-              await deleteObject(imgRef);
-            }
-          } catch (e) {}
-        }
+        const fd = new FormData();
+        fd.append('file', new File([compressed], form.images[i].name, { type: form.images[i].type }));
+        fd.append('folder', 'banners');
+        const res = await fetch('/api/upload-image', { method: 'POST', body: fd });
+        const uploadData = await res.json();
+        const url = uploadData.url || uploadData.secure_url;
+        if (!url) throw new Error('Upload gagal');
         imageUrls[i] = url;
       }
     }
 
     const bannerData = {
       images: imageUrls,
-      startDate: form.startDate,
-      endDate: form.endDate,
-      createdAt: new Date(),
+      start_date: form.startDate,
+      end_date: form.endDate,
+      created_at: new Date().toISOString(),
     };
 
     try {
       if (editId) {
-        await setDoc(doc(firestore, 'banners', editId), bannerData, { merge: true });
+        await supabase.from('banners').update(bannerData).eq('id', editId);
         setSuccess('Banner berhasil diubah.');
       } else {
-        await addDoc(collection(firestore, 'banners'), bannerData);
+        await supabase.from('banners').insert(bannerData);
         setSuccess('Banner berhasil ditambahkan.');
       }
       setForm({
@@ -206,8 +162,8 @@ export default function BannerAdminPage() {
   const handleEdit = (banner) => {
     setForm({
       images: [null, null, null, null, null],
-      startDate: banner.startDate || '',
-      endDate: banner.endDate || '',
+      startDate: banner.start_date || banner.startDate || '',
+      endDate: banner.end_date || banner.endDate || '',
       existingImages: banner.images || ['', '', '', '', ''],
     });
     fileInputRefs.forEach((ref) => ref.current && (ref.current.value = ''));
@@ -351,7 +307,8 @@ export default function BannerAdminPage() {
                         )}
                       </td>
                       <td className="py-2 px-4">{banner.startDate}</td>
-                      <td className="py-2 px-4">{banner.endDate}</td>
+                      <td className="py-2 px-4">{banner.start_date || banner.startDate}</td>
+                      <td className="py-2 px-4">{banner.end_date || banner.endDate}</td>
                       <td className="py-2 px-4">
                         <button
                           onClick={() => handleEdit(banner)}
@@ -365,7 +322,7 @@ export default function BannerAdminPage() {
                         >
                           Delete
                         </button>
-                        {banner.endDate && new Date(banner.endDate) < new Date() && (
+                        {(banner.end_date || banner.endDate) && new Date(banner.end_date || banner.endDate) < new Date() && (
                           <span className="ml-2 text-xs text-red-600 font-bold">Expired</span>
                         )}
                       </td>

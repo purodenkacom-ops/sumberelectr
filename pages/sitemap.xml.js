@@ -1,3 +1,5 @@
+import { supabaseAdmin } from '@/utils/supabaseAdmin';
+
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.purodenka.com';
 
 function xmlEscape(str = '') {
@@ -13,42 +15,36 @@ function toLastMod(val) {
   try {
     if (!val) return new Date().toISOString();
     if (val instanceof Date) return val.toISOString();
-    if (typeof val?.toDate === 'function') return val.toDate().toISOString();
     const d = new Date(val);
     if (!isNaN(d.getTime())) return d.toISOString();
   } catch {}
   return new Date().toISOString();
 }
 
-async function fetchSitemapData(adminDb, baseUrl) {
+async function fetchSitemapData(baseUrl) {
   const urls = [];
-
-  // Static, public pages
   urls.push({ loc: `${baseUrl}/`, changefreq: 'daily', priority: 1.0 });
   urls.push({ loc: `${baseUrl}/all-product`, changefreq: 'daily', priority: 0.8 });
 
-  // Dynamic products and categories
   try {
-    const snap = await adminDb.collection('products').get();
-    const categorySet = new Set();
+    const { data: products } = await supabaseAdmin
+      .from('products')
+      .select('product_slug, category_slug, updated_at');
 
-    snap.forEach(doc => {
-      const data = doc.data() || {};
-      const slug = data.productSlug || data.slug || null;
-      const lastmod = toLastMod(data.updatedAt || data.publishedAt || data.createdAt);
+    const categorySet = new Set();
+    for (const p of products || []) {
+      const slug = p.product_slug;
       if (slug) {
         urls.push({
           loc: `${baseUrl}/product/${encodeURIComponent(slug)}`,
           changefreq: 'daily',
           priority: 0.7,
-          lastmod,
+          lastmod: toLastMod(p.updated_at),
         });
       }
-      const cat = data.categorySlug || data.category || null;
-      if (cat && typeof cat === 'string') categorySet.add(cat);
-    });
+      if (p.category_slug && typeof p.category_slug === 'string') categorySet.add(p.category_slug);
+    }
 
-    // Derived category pages
     Array.from(categorySet).forEach(catSlug => {
       urls.push({
         loc: `${baseUrl}/category/${encodeURIComponent(catSlug)}`,
@@ -57,26 +53,23 @@ async function fetchSitemapData(adminDb, baseUrl) {
       });
     });
 
-    // === Tambahkan artikel ke sitemap ===
-    const articleSnap = await adminDb.collection('articles').get();
-    articleSnap.forEach(doc => {
-      const data = doc.data() || {};
-      const slug = data.slug || doc.id;
-      const lastmod = toLastMod(data.updatedAt || data.publishedAt || data.createdAt);
+    const { data: articles } = await supabaseAdmin
+      .from('articles')
+      .select('slug, updated_at');
+
+    for (const a of articles || []) {
+      const slug = a.slug;
       if (slug) {
         urls.push({
           loc: `${baseUrl}/article/${encodeURIComponent(slug)}`,
           changefreq: 'weekly',
           priority: 0.8,
-          lastmod,
+          lastmod: toLastMod(a.updated_at),
         });
       }
-    });
-    // === END artikel ===
-
+    }
   } catch (e) {
-    // On error, proceed with static URLs only
-    console.warn('[sitemap] Firestore fetch failed:', e?.message || e);
+    console.warn('[sitemap] Supabase fetch failed:', e?.message || e);
   }
 
   return urls;
@@ -86,7 +79,6 @@ function buildXml(urls) {
   const lines = [];
   lines.push('<?xml version="1.0" encoding="UTF-8"?>');
   lines.push('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">');
-
   for (const u of urls) {
     lines.push('  <url>');
     lines.push(`    <loc>${xmlEscape(u.loc)}</loc>`);
@@ -95,28 +87,24 @@ function buildXml(urls) {
     if (typeof u.priority === 'number') lines.push(`    <priority>${u.priority.toFixed(1)}</priority>`);
     lines.push('  </url>');
   }
-
   lines.push('</urlset>');
   return lines.join('\n');
 }
 
 export default function SiteMapPage() {
-  // This page does not render anything on the client.
   return null;
 }
 
 export async function getServerSideProps({ req, res }) {
   try {
-    const { adminDb } = await import('@/utils/firebaseAdmin');
     const envBase = process.env.NEXT_PUBLIC_SITE_URL;
     const proto = req.headers['x-forwarded-proto'] || (process.env.VERCEL ? 'https' : 'http');
     const host = req.headers['x-forwarded-host'] || req.headers.host;
     const baseUrl = (envBase && envBase.trim()) ? envBase.replace(/\/$/, '') : `${proto}://${host}`;
-    const urls = await fetchSitemapData(adminDb, baseUrl);
+    const urls = await fetchSitemapData(baseUrl);
     const xml = buildXml(urls);
 
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
-    // Cache sitemap for 7 days — products/articles change infrequently
     res.setHeader('Cache-Control', 'public, s-maxage=604800, stale-while-revalidate=604800');
     res.write(xml);
     res.end();

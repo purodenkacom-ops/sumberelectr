@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/router';
-import { auth, firestore } from '@/utils/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { supabase } from '@/utils/supabase';
+import { useAuth } from '@/context/AuthContext';
 import PopupCart from '@/components/PopupCart';
 import { FaShoppingCart } from 'react-icons/fa';
 
@@ -19,18 +19,16 @@ export default function SimpleProductCard({ product = {}, onBuyNow /* canDelete,
   const [showCartPopup, setShowCartPopup] = useState(false);
   const [fullProduct, setFullProduct] = useState(null);
 
+  const { user } = useAuth();
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged((u) => {
-      if (u) {
-        setUserId(u.uid);
-        setBuyerName(u.displayName || 'Pembeli');
-      } else {
-        setUserId(null);
-        setBuyerName('');
-      }
-    });
-    return () => unsub();
-  }, []);
+    if (user) {
+      setUserId(user.id || user.uid);
+      setBuyerName(user.user_metadata?.name || user.displayName || 'Pembeli');
+    } else {
+      setUserId(null);
+      setBuyerName('');
+    }
+  }, [user]);
 
   const getImage = (p) => {
     if (!p) return '/placeholder.png';
@@ -59,15 +57,15 @@ export default function SimpleProductCard({ product = {}, onBuyNow /* canDelete,
     if (!needsFetch) return () => { mounted = false; };
     (async () => {
       try {
-        const pref = doc(firestore, 'products', String(product.id));
-        const snap = await getDoc(pref);
-        if (!mounted) return;
-        if (snap.exists()) {
-          const data = snap.data();
-          const better = getImage({ image: data.image, images: data.images });
-          if (better && better !== '/placeholder.png') setResolvedImage(better);
-          setFullProduct({ id: snap.id, ...data });
-        }
+        const { data } = await supabase
+          .from('products')
+          .select('*')
+          .eq('id', String(product.id))
+          .maybeSingle();
+        if (!mounted || !data) return;
+        const better = getImage({ image: data.image, images: data.images });
+        if (better && better !== '/placeholder.png') setResolvedImage(better);
+        setFullProduct({ ...data });
       } catch { /* ignore */ }
     })();
     return () => { mounted = false; };
@@ -86,12 +84,14 @@ export default function SimpleProductCard({ product = {}, onBuyNow /* canDelete,
 
   const handleCartClick = async () => {
     try {
-      // Guest-friendly: do not require login. Try to fetch full product for accurate price; fallback to prop.
       if (product?.id) {
-        const pref = doc(firestore, 'products', String(product.id));
-        const snap = await getDoc(pref);
-        if (snap.exists()) {
-          setFullProduct({ id: snap.id, ...snap.data() });
+        const { data } = await supabase
+          .from('products')
+          .select('*')
+          .eq('id', String(product.id))
+          .maybeSingle();
+        if (data) {
+          setFullProduct({ ...data });
           setShowCartPopup(true);
           return;
         }
