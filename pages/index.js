@@ -427,6 +427,7 @@ export async function getStaticProps() {
           sold: d.sold || d.sales_count || 0,
           minWholesale: d.min_wholesale || d.min_wholesale_qty || null,
           weight: d.weight != null ? Number(d.weight) : null,
+          sku: d.sku || d.metadata?.sku || null,
           video: d.video || null,
           createdAt: d.created_at ? Date.parse(d.created_at) : 0
         };

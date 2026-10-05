@@ -170,7 +170,10 @@ export default function ProductListPage() {
   const fetchProducts = async () => {
     setLoading(true);
     const { data } = await supabase.from('products').select('*').order('created_at', { ascending: false });
-    setProducts(data || []);
+    setProducts((data || []).map((product) => ({
+      ...product,
+      sku: product.sku || product.metadata?.sku || '',
+    })));
     setLoading(false);
   };
 
@@ -421,6 +424,10 @@ export default function ProductListPage() {
           description: productData.description,
           images: productData.images,
           product_slug: productData.productSlug,
+          metadata: {
+            ...(products.find((product) => product.id === editId)?.metadata || {}),
+            sku: productData.sku,
+          },
           updated_at: new Date().toISOString(),
         }).eq('id', editId);
         setSuccess('Produk berhasil diubah.');
@@ -443,6 +450,7 @@ export default function ProductListPage() {
           description: productData.description,
           images: productData.images,
           product_slug: productData.productSlug,
+          metadata: { sku: productData.sku },
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }).select().single();
@@ -908,12 +916,14 @@ export default function ProductListPage() {
     setBulkSuccessMessage('');
     try {
       // Ambil mapping slug/sku -> id dari Supabase
-      const { data: existingProds } = await supabase.from('products').select('id,product_slug,sku');
+      const { data: existingProds, error: existingError } = await supabase.from('products').select('id,product_slug,metadata');
+      if (existingError) throw existingError;
       const slugToId = {};
       const skuToId = {};
       (existingProds || []).forEach(p => {
         if (p.product_slug) slugToId[p.product_slug] = p.id;
-        if (p.sku) skuToId[String(p.sku).trim()] = p.id;
+        const sku = p.metadata?.sku;
+        if (sku) skuToId[String(sku).trim()] = p.id;
       });
 
       // Supabase upsert (chunked 100)
@@ -938,9 +948,11 @@ export default function ProductListPage() {
             weight: prod.weight || null,
             description: prod.description || null,
             images: prod.images || [],
-            sku: sku || null,
+            metadata: {
+              sku: sku || null,
+              video: prod.video || null,
+            },
             product_slug: prod.productSlug || null,
-            video: prod.video || null,
             updated_at: new Date().toISOString(),
           };
         });

@@ -36,6 +36,7 @@ export function serializeProductDoc(docSnap) {
   if (docSnap && !docSnap.data) {
     return {
       ...docSnap,
+      sku: docSnap.sku || docSnap.metadata?.sku || null,
       createdAt: toIsoDate(docSnap.createdAt || docSnap.created_at),
       updatedAt: toIsoDate(docSnap.updatedAt || docSnap.updated_at),
     };
@@ -44,6 +45,7 @@ export function serializeProductDoc(docSnap) {
   return {
     id: docSnap.id,
     ...data,
+    sku: data.sku || data.metadata?.sku || null,
     createdAt: toIsoDate(data.createdAt),
     updatedAt: toIsoDate(data.updatedAt),
   };

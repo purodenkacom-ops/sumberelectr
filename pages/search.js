@@ -39,7 +39,10 @@ const SearchPage = () => {
       try {
         const { data, error } = await supabase.from('products').select('*');
         if (error) throw error;
-        setAllProducts(data || []);
+        setAllProducts((data || []).map((product) => ({
+          ...product,
+          sku: product.sku || product.metadata?.sku || null,
+        })));
       } catch (err) {
         console.error("Gagal mengambil data produk", err);
       } finally {

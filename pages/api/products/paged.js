@@ -62,7 +62,10 @@ export default async function handler(req, res) {
     if (error) throw error;
 
     return res.status(200).json({
-      products: data || [],
+      products: (data || []).map((product) => ({
+        ...product,
+        sku: product.sku || product.metadata?.sku || null,
+      })),
       pagination: {
         total: count || 0,
         page: pageNum,
