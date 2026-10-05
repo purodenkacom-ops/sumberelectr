@@ -131,7 +131,7 @@ export function AuthProvider({ children }) {
   }, [router]);
 
   const loginWithGoogle = async () => {
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+    const siteUrl = window.location.origin;
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -155,7 +155,7 @@ export function AuthProvider({ children }) {
   };
 
   const signup = async (email, password, extraData = {}) => {
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+    const siteUrl = window.location.origin;
     const { data, error } = await supabase.auth.signUp({
       email,
       password,

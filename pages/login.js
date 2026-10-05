@@ -102,7 +102,7 @@ export default function LoginPage() {
     }
 
     try {
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+      const siteUrl = window.location.origin;
       const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
         redirectTo: `${siteUrl}/account/reset-password`,
       });
