@@ -78,7 +78,7 @@ function parseExcel(filename) {
       price: number(row.Price, 'Price', rowNumber),
       stock: number(row.Stock, 'Stock', rowNumber),
       sku: text(row.SKU),
-      weight: number(row['Package Weight'], 'Package Weight', rowNumber),
+      weightKg: number(row['Package Weight'], 'Package Weight', rowNumber),
       currency: text(row.Currency) || 'IDR',
       images,
     };
@@ -188,7 +188,7 @@ async function writeBackup(products, categories) {
       price: item.price,
       price_retail: item.price,
       price_wholesale: old?.price_wholesale ?? item.price,
-      weight: item.weight ?? old?.weight ?? 0,
+      weight: item.weightKg == null ? old?.weight ?? 0 : item.weightKg * 1000,
       stock: Math.trunc(item.stock),
       metadata: {
         ...(old?.metadata || {}),
@@ -218,7 +218,7 @@ async function writeBackup(products, categories) {
     duplicateSlugs: duplicateSlugs.length,
     duplicateSkus: skuDuplicates.length,
     newSubcategories: newSubcategories.size,
-    blankWeights: excel.filter((item) => item.weight == null).length,
+    blankWeights: excel.filter((item) => item.weightKg == null).length,
   };
   console.log(JSON.stringify(summary, null, 2));
   fs.writeFileSync('product-sync-plan.json', JSON.stringify({ summary, skuDuplicates, obsolete: obsolete.map(({ id, name }) => ({ id, name })) }, null, 2));

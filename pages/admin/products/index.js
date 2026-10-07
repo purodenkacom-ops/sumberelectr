@@ -606,7 +606,7 @@ export default function ProductListPage() {
         Currency: 'IDR',
         Stock: product.stock || 0,
         SKU: product.sku || product.metadata?.sku || '',
-        'Package Weight': product.weight ?? '',
+        'Package Weight': product.weight == null || product.weight === '' ? '' : Number(product.weight) / 1000,
         'Product Image 1': product.images?.[0] || '',
         'Product Image 2': product.images?.[1] || '',
         'Product Image 3': product.images?.[2] || ''
