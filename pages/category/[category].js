@@ -174,43 +174,9 @@ export default function CategoryPage({ category, products, categoryData }) {
 
   // Sort and filter products client-side
   const sortedProducts = useMemo(() => {
-    let out;
-
-    if (subCategoryFilter) {
-      // Apply product-level filters (phase, type, ampere, voltage, displayType)
-      out = applyProductFilters(subCatProducts, { searchTerm: '', phaseFilter, typeFilter, kontaktorTypeFilter, ampereFilter, voltageFilter, displayTypeFilter });
-    } else {
-      // Group by subcategory when no filter is applied
-      out = products.slice();
-      const groups = {};
-      out.forEach(p => {
-        const subCat = (p.subCategorySlug || p.subCategory || 'lain-lain').toLowerCase();
-        if (!groups[subCat]) {
-          groups[subCat] = {
-            ...p,
-            _allPrices: [],
-            _allSold: 0
-          };
-        }
-        groups[subCat]._allPrices.push(getMinPrice(p));
-        groups[subCat]._allSold += Number(p.sold ?? p.salesCount ?? 0);
-      });
-
-      out = Object.values(groups).map(g => {
-        const validPrices = g._allPrices.filter(pr => pr > 0);
-        if (validPrices.length > 0) {
-          g.minPriceGroup = Math.min(...validPrices);
-          g.maxPriceGroup = Math.max(...validPrices);
-        } else {
-          g.minPriceGroup = 0;
-          g.maxPriceGroup = 0;
-        }
-        g.sold = g._allSold;
-        delete g._allPrices;
-        delete g._allSold;
-        return g;
-      });
-    }
+    let out = subCategoryFilter
+      ? applyProductFilters(subCatProducts, { searchTerm: '', phaseFilter, typeFilter, kontaktorTypeFilter, ampereFilter, voltageFilter, displayTypeFilter })
+      : products.slice();
 
     switch (sortMode) {
       case 'az':
@@ -342,7 +308,7 @@ export default function CategoryPage({ category, products, categoryData }) {
               <p className="text-sm text-gray-600">
                 {subCategoryFilter
                   ? `Filter: ${subCategoryFilter.replace(/-/g, ' ')}`
-                  : `Menampilkan semua subkategori dari ${categoryData?.name || readableCategory}`}
+                  : `Menampilkan semua produk dari ${categoryData?.name || readableCategory}`}
               </p>
             </div>
 
