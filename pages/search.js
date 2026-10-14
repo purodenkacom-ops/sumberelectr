@@ -7,6 +7,8 @@ import PopupCart from '@/components/PopupCart';
 import Fuse from 'fuse.js';
 import { useDebounce } from 'use-debounce';
 
+const PRODUCT_PAGE_SIZE = 1000;
+
 const SearchPage = () => {
   const router = useRouter();
   const { q } = router.query;
@@ -30,16 +32,43 @@ const SearchPage = () => {
     if (router.isReady && q && searchTerm === '') {
       setSearchTerm(q);
     }
-  }, [router.isReady, q]);
+  }, [router.isReady, q, searchTerm]);
 
   // 1. Fetch data HANYA SEKALI saat halaman dimuat (Caching)
   useEffect(() => {
     const fetchAllProducts = async () => {
       setLoading(true);
       try {
-        const { data, error } = await supabase.from('products').select('*');
-        if (error) throw error;
-        setAllProducts((data || []).map((product) => ({
+        const products = [];
+        let total = null;
+
+        for (let from = 0; total === null || from < total;) {
+          const { data, count, error } = await supabase
+            .from('products')
+            .select('*', { count: 'exact' })
+            .order('id', { ascending: true })
+            .range(from, from + PRODUCT_PAGE_SIZE - 1);
+
+          if (error) throw error;
+
+          const page = data || [];
+          if (total === null) total = count ?? page.length;
+          if (page.length === 0 && from < total) {
+            throw new Error(`Expected ${total} products but received ${products.length}`);
+          }
+
+          products.push(...page);
+          from += page.length;
+
+          if (page.length < PRODUCT_PAGE_SIZE) {
+            if (from < total) {
+              throw new Error(`Expected ${total} products but received ${products.length}`);
+            }
+            break;
+          }
+        }
+
+        setAllProducts(products.map((product) => ({
           ...product,
           sku: product.sku || product.metadata?.sku || null,
         })));
@@ -55,7 +84,7 @@ const SearchPage = () => {
   // 2. Setup algoritma Fuzzy Search menggunakan Fuse.js
   const fuse = useMemo(() => {
     return new Fuse(allProducts, {
-      keys: ['name', 'productName', 'description', 'category'], // Field yang dicari
+      keys: ['name', 'productName', 'description', 'category', 'category_slug', 'sub_category'],
       threshold: 0.4, // Toleransi typo (0 = cocok sempurna, 1 = sangat longgar)
       ignoreLocation: true,
     });
@@ -76,7 +105,7 @@ const SearchPage = () => {
     if (router.isReady && debouncedSearch && debouncedSearch !== q) {
       router.push({ pathname: '/search', query: { q: debouncedSearch } }, undefined, { shallow: true });
     }
-  }, [debouncedSearch, allProducts, fuse, router.isReady]);
+  }, [debouncedSearch, allProducts, fuse, router, q]);
 
   // 4. Hitung sorted products berdasarkan filteredProducts dan sortBy
   const sortedProducts = useMemo(() => {
@@ -119,10 +148,6 @@ const SearchPage = () => {
     }
     return sorted;
   }, [filteredProducts, sortBy]);
-
-  const handleProductClick = (productSlug) => {
-    router.push(`/product/${productSlug}`);
-  };
 
   // Form submit dicegah reload
   const handleSearch = (e) => {
@@ -240,9 +265,7 @@ const SearchPage = () => {
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                 {sortedProducts.map((product) => (
-                  <div key={product.id} onClick={() => handleProductClick(product.productSlug)} className="cursor-pointer">
-                    <ProductCard product={product} onAddToCart={handleAddToCart} />
-                  </div>
+                  <ProductCard key={product.id} product={product} onAddToCart={handleAddToCart} />
                 ))}
               </div>
             )}
@@ -260,4 +283,3 @@ const SearchPage = () => {
 };
 
 export default SearchPage;
-

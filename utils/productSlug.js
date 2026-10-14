@@ -18,8 +18,8 @@ export function getEffectiveProductSlug(product, docId) {
     p.product_slug ||
     p.slug ||
     p.permalink ||
-    (p.name ? buildProductSlug(p.name) : null) ||
     docId ||
+    (p.name ? buildProductSlug(p.name) : null) ||
     null
   );
 }

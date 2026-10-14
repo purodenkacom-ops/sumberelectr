@@ -58,6 +58,7 @@ export async function getStaticProps({ params }) {
       minWholesale: p.min_wholesale,
       stock: p.stock,
       weight: p.weight,
+      sku: p.sku || p.metadata?.sku || null,
       sold: p.sold,
       discount: p.discount,
       rating: p.rating,
@@ -183,10 +184,10 @@ export default function CategoryPage({ category, products, categoryData }) {
         out.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'id'));
         break;
       case 'price-asc':
-        out.sort((a, b) => ((a.minPriceGroup ?? getMinPrice(a)) || 0) - ((b.minPriceGroup ?? getMinPrice(b)) || 0));
+        out.sort((a, b) => getMinPrice(a) - getMinPrice(b));
         break;
       case 'price-desc':
-        out.sort((a, b) => ((b.minPriceGroup ?? getMinPrice(b)) || 0) - ((a.minPriceGroup ?? getMinPrice(a)) || 0));
+        out.sort((a, b) => getMinPrice(b) - getMinPrice(a));
         break;
       case 'best-selling':
         out.sort((a, b) => (Number(b.sold ?? b.salesCount ?? 0)) - (Number(a.sold ?? a.salesCount ?? 0)));
@@ -252,7 +253,7 @@ export default function CategoryPage({ category, products, categoryData }) {
                 }
               }}
               onClearFilters={() => {
-                router.push(`/category/${category}`, undefined, { shallow: true });
+                router.push('/all-product');
               }}
             />
           </div>
@@ -281,7 +282,7 @@ export default function CategoryPage({ category, products, categoryData }) {
               setIsMobileSidebarOpen(false);
             }}
             onClearFilters={() => {
-              router.push(`/category/${category}`, undefined, { shallow: true });
+              router.push('/all-product');
               setIsMobileSidebarOpen(false);
             }}
           />
