@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/utils/supabase';
 import { supabaseAdmin } from '@/utils/supabaseAdmin';
 import {
-  getEffectiveProductSlug,
+  getProductRouteSlug,
   findProductBySlug,
   serializeProductDoc,
 } from '@/utils/productSlug';
@@ -170,7 +170,7 @@ const SingleProductPage = ({
     );
   }
 
-  const shareUrl = `${SITE_URL.replace(/\/+$/, '')}/product/${product.productSlug || product.slug}`;
+  const shareUrl = `${SITE_URL.replace(/\/+$/, '')}/product/${getProductRouteSlug(product, product.id)}`;
   const facebookShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
   const title = `${product.name} | Harga & Jual ${product.name} Terbaik`;
   const description = product.description?.slice(0, 160) || `Beli ${product.name} harga terbaik & terpercaya.`;

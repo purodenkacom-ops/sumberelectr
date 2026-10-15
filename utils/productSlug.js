@@ -7,6 +7,7 @@ export function buildProductSlug(raw) {
     .toString()
     .toLowerCase()
     .trim()
+    .replace(/(\d)\.(\d)/g, '$1-$2')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 }
@@ -22,6 +23,14 @@ export function getEffectiveProductSlug(product, docId) {
     (p.name ? buildProductSlug(p.name) : null) ||
     null
   );
+}
+
+export function getProductRouteSlug(product, docId) {
+  const p = product || {};
+  const id = docId ?? p.id;
+  const baseSlug = buildProductSlug(p.name) || getEffectiveProductSlug(p, id);
+  if (!baseSlug) return null;
+  return id == null ? baseSlug : `${baseSlug}--id-${encodeURIComponent(String(id))}`;
 }
 
 function toIsoDate(value) {
@@ -57,6 +66,11 @@ export function serializeProductDoc(docSnap) {
 export async function findProductBySlug(adminDbOrNull, slug) {
   const normalized = decodeURIComponent(String(slug || '')).trim();
   if (!normalized) return null;
+  const idMarker = '--id-';
+  const idMarkerIndex = normalized.lastIndexOf(idMarker);
+  const routeProductId = idMarkerIndex >= 0
+    ? normalized.slice(idMarkerIndex + idMarker.length)
+    : null;
 
   if (typeof window === 'undefined') {
     // 1. Try Drizzle
@@ -66,6 +80,15 @@ export async function findProductBySlug(adminDbOrNull, slug) {
       const { eq, or } = await import('drizzle-orm');
 
       if (db) {
+        if (routeProductId) {
+          const results = await db
+            .select()
+            .from(products)
+            .where(eq(products.id, routeProductId))
+            .limit(1);
+          if (results.length > 0) return results[0];
+        }
+
         const results = await db
           .select()
           .from(products)
@@ -88,6 +111,15 @@ export async function findProductBySlug(adminDbOrNull, slug) {
     // 2. Try Supabase
     try {
       const { supabaseAdmin } = await import('@/utils/supabaseAdmin');
+      if (routeProductId) {
+        const { data: productById } = await supabaseAdmin
+          .from('products')
+          .select('*')
+          .eq('id', routeProductId)
+          .maybeSingle();
+        if (productById) return productById;
+      }
+
       const { data } = await supabaseAdmin
         .from('products')
         .select('*')
@@ -104,6 +136,11 @@ export async function findProductBySlug(adminDbOrNull, slug) {
   // 3. Fallback to Firebase adminDb if passed
   if (adminDbOrNull) {
     const col = adminDbOrNull.collection('products');
+    if (routeProductId) {
+      const productById = await col.doc(routeProductId).get();
+      if (productById.exists) return productById;
+    }
+
     for (const field of ['productSlug', 'slug', 'permalink']) {
       const snap = await col.where(field, '==', normalized).limit(1).get();
       if (!snap.empty) return snap.docs[0];

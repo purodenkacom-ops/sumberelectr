@@ -8,6 +8,7 @@ import Footer from '@/components/Footer';
 import { FaChevronDown } from 'react-icons/fa';
 import { useAuth } from '@/context/AuthContext';
 import { useCategories } from '@/hooks/useCategories';
+import { getProductRouteSlug } from '@/utils/productSlug';
 
 const AllProductPage = () => {
   const { user } = useAuth();
@@ -102,7 +103,7 @@ const AllProductPage = () => {
     "itemListElement": products.map((p, idx) => ({
       "@type": "ListItem",
       "position": idx + 1,
-      "url": `/product/${p.productSlug || p.product_slug || p.slug || p.id}`,
+      "url": `/product/${getProductRouteSlug(p, p.id)}`,
       "name": p.name,
       "image": p.image || (Array.isArray(p.images) ? p.images[0] : undefined) || '',
       "offers": {

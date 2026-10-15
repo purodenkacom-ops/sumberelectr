@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/utils/supabaseAdmin';
+import { buildProductSlug } from '@/utils/productSlug';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -13,11 +14,7 @@ export default async function handler(req, res) {
   try {
     const formatted = items.map((p) => {
       const name = p.name || 'Produk';
-      const slug = (p.slug || name)
-        .toLowerCase()
-        .trim()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '');
+      const slug = buildProductSlug(name);
 
       return {
         id: p.id || String(Date.now() + Math.random()),

@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import PopupCart from './PopupCart';
 import Image from 'next/image';
 import { useDiscounts } from '@/context/DiscountContext';
-import { getEffectiveProductSlug } from '@/utils/productSlug';
+import { getProductRouteSlug } from '@/utils/productSlug';
 
 const ProductCard = ({ product, onAddToCart }) => {
   const { user } = useAuth();
@@ -149,7 +149,7 @@ const ProductCard = ({ product, onAddToCart }) => {
     setShowCartPopup(true);
   };
 
-  const effectiveSlug = getEffectiveProductSlug(product, product.id);
+  const effectiveSlug = getProductRouteSlug(product, product.id);
 
   // Ambil gambar utama
   const getFirstImage = () => {

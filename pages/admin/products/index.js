@@ -4,6 +4,7 @@ import { useRouter } from 'next/router';
 import { supabase } from '@/utils/supabase';
 import { useAuth } from '@/context/AuthContext';
 import AdminLayout from '../_layout';
+import { buildProductSlug } from '@/utils/productSlug';
 import Link from 'next/link';
 import Image from 'next/image';
 import { FaChevronLeft, FaChevronRight } from 'react-icons/fa';
@@ -399,7 +400,7 @@ export default function ProductListPage() {
     const subCategorySlug = subCatDoc?.slug || getCategorySlug(form.subCategory);
     const subCategoryId = subCatDoc?.id || null;
 
-    const productSlug = slugify(form.name);
+    const productSlug = buildProductSlug(form.name);
 
     // Disable random sold, rating, and reviewCount for initial upload
     const sold = 0;
@@ -834,7 +835,7 @@ export default function ProductListPage() {
             }
           }
 
-          const productSlug = slugify(name);
+          const productSlug = buildProductSlug(name);
           const sold = 0;
           const rating = 0;
           const reviewCount = 0;
@@ -903,7 +904,7 @@ export default function ProductListPage() {
           const catDoc = categoryDocs.find(c => c.name === category);
           const categorySlug = catDoc?.slug || getCategorySlug(category);
           const categoryId = catDoc?.id || null;
-          const productSlug = slugify(name);
+          const productSlug = buildProductSlug(name);
           const sold = 0;
           const rating = 0;
           const reviewCount = 0;

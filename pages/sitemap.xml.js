@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/utils/supabaseAdmin';
+import { getProductRouteSlug } from '@/utils/productSlug';
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.purodenka.com';
 
@@ -29,11 +30,17 @@ async function fetchSitemapData(baseUrl) {
   try {
     const { data: products } = await supabaseAdmin
       .from('products')
-      .select('product_slug, category_slug, updated_at');
+      .select('id, name, slug, permalink, product_slug, category_slug, updated_at');
 
     const categorySet = new Set();
     for (const p of products || []) {
-      const slug = p.product_slug;
+      const slug = getProductRouteSlug({
+        id: p.id,
+        name: p.name,
+        slug: p.slug,
+        permalink: p.permalink,
+        product_slug: p.product_slug,
+      }, p.id);
       if (slug) {
         urls.push({
           loc: `${baseUrl}/product/${encodeURIComponent(slug)}`,

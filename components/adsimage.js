@@ -2,6 +2,7 @@
 import { useRouter } from 'next/router';
 import Image from 'next/image';
 import { supabase } from '@/utils/supabase';
+import { getProductRouteSlug } from '@/utils/productSlug';
 
 // AdsImage: 1:1 image carousel showing up to 16 random products (1 image each)
 // Props:
@@ -59,7 +60,7 @@ export default function AdsImage({ userId, max = 16, intervalMs = 3500, transiti
             if (video || img) {
               picks.push({
                 id: p.id,
-                slug: p.productSlug || p.slug || p.id,
+                slug: getProductRouteSlug(p, p.id),
                 src: img || '',
                 video,
                 alt: p.name || 'Product',
@@ -183,5 +184,4 @@ export default function AdsImage({ userId, max = 16, intervalMs = 3500, transiti
     </div>
   );
 }
-
 

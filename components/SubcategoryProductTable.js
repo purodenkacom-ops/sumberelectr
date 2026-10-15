@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthContext';
 import { useDiscounts } from '@/context/DiscountContext';
-import { getEffectiveProductSlug } from '@/utils/productSlug';
+import { getProductRouteSlug } from '@/utils/productSlug';
 
 import ProductFilterBar from '@/components/ProductFilterBar';
 import { computeAvailableFilters, applyProductFilters } from '@/utils/productFilters';
@@ -59,7 +59,7 @@ const MobileCard = ({ product, currentProductId, cartItems }) => {
   const { discount, baseMinPrice, finalMin } = useProductPrice(product);
   const isCurrent = product.id === currentProductId;
   const imageSrc = getFirstImage(product);
-  const slug = getEffectiveProductSlug(product, product.id);
+  const slug = getProductRouteSlug(product, product.id);
 
   const handleBuy = async () => {
     if (!user) {
@@ -172,7 +172,7 @@ const TableRow = ({ product, currentProductId, cartItems }) => {
   const { discount, baseMinPrice, finalMin } = useProductPrice(product);
   const isCurrent = product.id === currentProductId;
   const imageSrc = getFirstImage(product);
-  const slug = getEffectiveProductSlug(product, product.id);
+  const slug = getProductRouteSlug(product, product.id);
 
   const handleBuy = async () => {
     if (!user) {
@@ -415,4 +415,3 @@ export default function SubcategoryProductTable({ products, currentProductId }) 
     </div>
   );
 }
-
