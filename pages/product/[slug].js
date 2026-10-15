@@ -17,7 +17,8 @@ import {
   FaShoppingCart,
   FaWhatsapp,
   FaFacebook,
-  FaLink
+  FaLink,
+  FaCheck
 } from 'react-icons/fa';
 import PopupCart from '@/components/PopupCart';
 import PopupBuyNow from '@/components/PopupBuyNow';
@@ -59,6 +60,13 @@ const SingleProductPage = ({
   const [showBuyPopup, setShowBuyPopup] = useState(false);
   const [cartMode, setCartMode] = useState('cart');
   const [cartStatus, setCartStatus] = useState('idle');
+  const [shareFeedback, setShareFeedback] = useState(null);
+
+  useEffect(() => {
+    if (!shareFeedback) return undefined;
+    const timeoutId = window.setTimeout(() => setShareFeedback(null), 2500);
+    return () => window.clearTimeout(timeoutId);
+  }, [shareFeedback]);
 
   // Harga
   const { baseMinPrice, baseMaxPrice } = useMemo(() => {
@@ -162,7 +170,8 @@ const SingleProductPage = ({
     );
   }
 
-  const shareUrl = `${SITE_URL}/product/${product.productSlug || product.slug}`;
+  const shareUrl = `${SITE_URL.replace(/\/+$/, '')}/product/${product.productSlug || product.slug}`;
+  const facebookShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
   const title = `${product.name} | Harga & Jual ${product.name} Terbaik`;
   const description = product.description?.slice(0, 160) || `Beli ${product.name} harga terbaik & terpercaya.`;
 
@@ -207,6 +216,19 @@ const SingleProductPage = ({
         worstRating: "1"
       };
     })()
+  };
+
+  const copyShareLink = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error('Clipboard API tidak tersedia di browser ini.');
+      }
+      await navigator.clipboard.writeText(shareUrl);
+      setShareFeedback({ type: 'success', message: 'Link produk berhasil disalin' });
+    } catch (error) {
+      console.error('Gagal menyalin link produk:', error);
+      setShareFeedback({ type: 'error', message: 'Link gagal disalin. Silakan coba lagi.' });
+    }
   };
 
   // Chat WhatsApp Admin
@@ -513,47 +535,41 @@ const SingleProductPage = ({
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Bagikan</p>
               <div className="flex gap-3">
                 <a
-                  href={`https://wa.me/?text=${encodeURIComponent(`${product.name} - ${shareUrl}`)}`}
+                  href={facebookShareUrl}
                   target="_blank"
-                  rel="noopener"
-                  className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center hover:bg-green-600"
-                  aria-label="Bagikan WhatsApp"
-                >
-                  <FaWhatsapp />
-                </a>
-                <a
-                  href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`}
-                  target="_blank"
-                  rel="noopener"
+                  rel="noopener noreferrer"
                   className="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700"
                   aria-label="Bagikan Facebook"
                 >
                   <FaFacebook />
                 </a>
                 <button
-                  onClick={() => {
-                    if (typeof navigator !== 'undefined') navigator.clipboard.writeText(shareUrl);
-                  }}
-                  className="w-9 h-9 rounded-full bg-gray-600 text-white flex items-center justify-center hover:bg-gray-700"
+                  type="button"
+                  onClick={copyShareLink}
+                  className="w-9 h-9 rounded-full bg-gray-600 text-white flex items-center justify-center hover:bg-gray-700 transition-colors"
                   aria-label="Salin Link"
                 >
                   <FaLink />
                 </button>
                 <button
+                  type="button"
                   onClick={chatWithAdmin}
-                  className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center hover:bg-green-600"
-                  aria-label="Chat WhatsApp Admin"
+                  className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center hover:bg-green-600 transition-colors"
+                  aria-label="Chat WhatsApp Customer Service"
+                  title="Chat WhatsApp Customer Service"
                 >
                   <FaWhatsapp />
                 </button>
               </div>
             </div>
 
-            {/* DESKTOP floating chat button (bottom-right) */}
+            {/* Floating WhatsApp CS button */}
             <button
+              type="button"
               onClick={chatWithAdmin}
-              aria-label="Chat WhatsApp Admin"
-              className="hidden lg:flex items-center justify-center fixed right-8 bottom-8 z-50 w-14 h-14 rounded-full bg-green-500 text-white shadow-lg hover:bg-green-600"
+              aria-label="Chat WhatsApp Customer Service"
+              title="Chat WhatsApp Customer Service"
+              className="hidden lg:flex items-center justify-center fixed right-8 bottom-8 z-50 w-14 h-14 rounded-full bg-green-500 text-white shadow-lg hover:bg-green-600 transition-colors"
             >
               <FaWhatsapp size={22} />
             </button>
@@ -619,6 +635,19 @@ const SingleProductPage = ({
             Ditambahkan ke keranjang
           </div>
         )}
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className={`fixed top-24 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 rounded-lg px-4 py-3 text-sm text-white shadow-lg transition-all duration-300 ${
+            shareFeedback
+              ? 'translate-y-0 opacity-100'
+              : '-translate-y-2 opacity-0 pointer-events-none'
+          } ${shareFeedback?.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}
+        >
+          {shareFeedback?.type === 'success' && <FaCheck aria-hidden="true" />}
+          <span>{shareFeedback?.message || ''}</span>
+        </div>
       </main>
 
       {/* MOBILE STICKY BAR */}
@@ -641,9 +670,11 @@ const SingleProductPage = ({
           <FaShoppingCart size={14} /> Keranjang
         </button>
         <button
+          type="button"
           onClick={chatWithAdmin}
           className="px-3 py-2 rounded-lg bg-green-500 text-white text-sm font-medium shadow flex items-center justify-center"
-          aria-label="Chat WhatsApp Admin"
+          aria-label="Chat WhatsApp Customer Service"
+          title="Chat WhatsApp Customer Service"
         >
           <FaWhatsapp />
         </button>
