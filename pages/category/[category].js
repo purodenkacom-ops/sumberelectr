@@ -35,13 +35,38 @@ export async function getStaticProps({ params }) {
   const { category } = params;
 
   try {
-    // Get products by category_slug
-    const { data: productRows } = await supabaseAdmin
+    // Look up the category first so legacy products can also match by category name.
+    const { data: catRow, error: categoryError } = await supabaseAdmin
+      .from('categories')
+      .select('*')
+      .eq('slug', category)
+      .is('parent_id', null)
+      .maybeSingle();
+
+    if (categoryError) throw categoryError;
+
+    const { data: slugProductRows, error: slugProductsError } = await supabaseAdmin
       .from('products')
       .select('*')
       .eq('category_slug', category);
 
-    const products = (productRows || []).map(p => ({
+    if (slugProductsError) throw slugProductsError;
+
+    const productRows = [...(slugProductRows || [])];
+    const categoryNames = [...new Set([catRow?.name, category].filter(Boolean))];
+
+    for (const categoryName of categoryNames) {
+      const { data: namedProductRows, error: namedProductsError } = await supabaseAdmin
+        .from('products')
+        .select('*')
+        .eq('category', categoryName);
+
+      if (namedProductsError) throw namedProductsError;
+      productRows.push(...(namedProductRows || []));
+    }
+
+    const uniqueProducts = [...new Map(productRows.map(product => [product.id, product])).values()];
+    const products = uniqueProducts.map(p => ({
       id: p.id,
       name: p.name,
       slug: p.slug,
@@ -66,15 +91,7 @@ export async function getStaticProps({ params }) {
       createdAt: p.created_at || null,
     }));
 
-    // Get category data
     let categoryData = null;
-    const { data: catRow } = await supabaseAdmin
-      .from('categories')
-      .select('*')
-      .eq('slug', category)
-      .is('parent_id', null)
-      .single();
-    
     if (catRow) {
       categoryData = {
         id: catRow.id,
@@ -90,13 +107,13 @@ export async function getStaticProps({ params }) {
         products: JSON.parse(JSON.stringify(products)),
         categoryData,
       },
-      revalidate: 86400,
+      revalidate: 60,
     };
   } catch (error) {
     console.error('Error fetching category products:', error);
     return {
       notFound: true,
-      revalidate: 86400,
+      revalidate: 60,
     };
   }
 }
@@ -145,6 +162,13 @@ export default function CategoryPage({ category, products, categoryData }) {
   const title = `Kategori ${readableCategory} | Purodenka`;
   const description = `Lihat koleksi peralatan listrik kategori ${readableCategory} di Purodenka. Temukan MCB, contactor, relay, power supply, kabel/wiring duct, saklar, dan aksesori panel dengan harga kompetitif.`;
 
+  const normalizeCategoryValue = (value) =>
+    String(value || '')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
   // Helper: get minimum price for sorting
   const getMinPrice = (p) => {
     try {
@@ -162,9 +186,11 @@ export default function CategoryPage({ category, products, categoryData }) {
   // Products filtered by subcategory
   const subCatProducts = useMemo(() => {
     if (!subCategoryFilter) return products;
-    return products.filter(p =>
-      (p.subCategorySlug || p.subCategory || '').toLowerCase() === subCategoryFilter.toLowerCase()
-    );
+    const selectedSubCategory = normalizeCategoryValue(subCategoryFilter);
+    return products.filter(p => (
+      normalizeCategoryValue(p.subCategorySlug) === selectedSubCategory ||
+      normalizeCategoryValue(p.subCategory) === selectedSubCategory
+    ));
   }, [products, subCategoryFilter]);
 
   // Compute which product filters are available
