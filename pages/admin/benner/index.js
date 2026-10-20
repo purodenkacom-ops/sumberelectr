@@ -5,29 +5,43 @@ import { supabase } from '@/utils/supabase';
 import AdminLayout from '../_layout';
 import Image from 'next/image';
 
-// Simple image compression using browser canvas
+// Compress images before sending them to the Cloudinary upload endpoint.
 const compressImage = (file, maxWidth = 1200, quality = 0.7) =>
-  new Promise((resolve) => {
+  new Promise((resolve, reject) => {
     const img = new window.Image();
     const reader = new FileReader();
     reader.onload = (e) => {
-      img.src = e.target.result;
+      if (typeof e.target?.result !== 'string') {
+        reject(new Error('Gagal membaca file gambar.'));
+        return;
+      }
       img.onload = () => {
         const canvas = document.createElement('canvas');
         const scale = Math.min(maxWidth / img.width, 1);
         canvas.width = img.width * scale;
         canvas.height = img.height * scale;
         const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Browser tidak dapat memproses gambar.'));
+          return;
+        }
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         canvas.toBlob(
           (blob) => {
+            if (!blob) {
+              reject(new Error('Gagal mengompres gambar.'));
+              return;
+            }
             resolve(new File([blob], file.name, { type: blob.type }));
           },
           'image/jpeg',
           quality
         );
       };
+      img.onerror = () => reject(new Error('File yang dipilih bukan gambar yang valid.'));
+      img.src = e.target.result;
     };
+    reader.onerror = () => reject(new Error('Gagal membaca file gambar.'));
     reader.readAsDataURL(file);
   });
 
@@ -56,20 +70,25 @@ export default function BannerAdminPage() {
     if (authUser.role !== 'admin') { router.push('/unauthorized'); return; }
     setUser(authUser);
     setLoading(false);
-    fetchBanners();
+    fetchBanners().catch((err) => setError(err.message || 'Gagal memuat banner.'));
   }, [authUser, router]);
 
   const fetchBanners = async () => {
-    const { data } = await supabase.from('banners').select('*').order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('banners').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
     setBanners(data || []);
   };
 
   // Delete banner and images from storage
   const handleDelete = async (id) => {
     if (confirm('Delete this banner?')) {
-      // Images di Cloudinary — tidak perlu delete manual (atau bisa tambah nanti)
-      await supabase.from('banners').delete().eq('id', id);
-      setBanners(banners.filter((b) => b.id !== id));
+      try {
+        const { error } = await supabase.from('banners').delete().eq('id', id);
+        if (error) throw error;
+        setBanners((current) => current.filter((banner) => banner.id !== id));
+      } catch (err) {
+        setError(err.message || 'Gagal menghapus banner.');
+      }
     }
   };
 
@@ -111,37 +130,42 @@ export default function BannerAdminPage() {
     if (!validateForm()) return;
     setUploading(true);
 
-    // Upload & compress images
-    let imageUrls = [...form.existingImages];
-    for (let i = 0; i < 5; i++) {
-      if (form.images[i]) {
-        const compressed = await compressImage(form.images[i]);
-        const fd = new FormData();
-        fd.append('file', new File([compressed], form.images[i].name, { type: form.images[i].type }));
-        fd.append('folder', 'banners');
-        const res = await fetch('/api/upload-image', { method: 'POST', body: fd });
-        const uploadData = await res.json();
-        const url = uploadData.url || uploadData.secure_url;
-        if (!url) throw new Error('Upload gagal');
-        imageUrls[i] = url;
-      }
-    }
-
-    const bannerData = {
-      images: imageUrls,
-      start_date: form.startDate,
-      end_date: form.endDate,
-      created_at: new Date().toISOString(),
-    };
-
     try {
+      const imageUrls = [...form.existingImages];
+      for (let i = 0; i < 5; i++) {
+        if (form.images[i]) {
+          const compressed = await compressImage(form.images[i]);
+          const fd = new FormData();
+          fd.append('file', compressed);
+          fd.append('folder', 'banners');
+          const res = await fetch('/api/upload-image', { method: 'POST', body: fd });
+          const uploadData = await res.json();
+          if (!res.ok) {
+            throw new Error(uploadData.error || 'Gagal mengunggah gambar banner ke Cloudinary.');
+          }
+          const url = uploadData.url || uploadData.secure_url;
+          if (!url) throw new Error('URL gambar tidak diterima dari Cloudinary.');
+          imageUrls[i] = url;
+        }
+      }
+
+      const bannerData = {
+        images: imageUrls,
+        start_date: form.startDate,
+        end_date: form.endDate,
+        created_at: new Date().toISOString(),
+      };
+
       if (editId) {
-        await supabase.from('banners').update(bannerData).eq('id', editId);
+        const { error } = await supabase.from('banners').update(bannerData).eq('id', editId);
+        if (error) throw error;
         setSuccess('Banner berhasil diubah.');
       } else {
-        await supabase.from('banners').insert(bannerData);
+        const { error } = await supabase.from('banners').insert(bannerData);
+        if (error) throw error;
         setSuccess('Banner berhasil ditambahkan.');
       }
+      await fetchBanners();
       setForm({
         images: [null, null, null, null, null],
         startDate: '',
@@ -150,9 +174,9 @@ export default function BannerAdminPage() {
       });
       fileInputRefs.forEach((ref) => ref.current && (ref.current.value = ''));
       setEditId(null);
-      fetchBanners();
+      setTimeout(() => setSuccess(''), 2500);
     } catch (err) {
-      setError('Gagal menyimpan banner.');
+      setError(err.message || 'Gagal menyimpan banner.');
     } finally {
       setUploading(false);
     }
@@ -214,6 +238,7 @@ export default function BannerAdminPage() {
             {success && (
               <div className="bg-green-100 text-green-700 text-sm p-2 mb-3 rounded">{success}</div>
             )}
+            <p className="text-xs text-gray-600 mb-4">Gambar banner akan diunggah ke Cloudinary.</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium mb-1">Tanggal Mulai Tayang</label>
@@ -306,7 +331,6 @@ export default function BannerAdminPage() {
                           ) : null
                         )}
                       </td>
-                      <td className="py-2 px-4">{banner.startDate}</td>
                       <td className="py-2 px-4">{banner.start_date || banner.startDate}</td>
                       <td className="py-2 px-4">{banner.end_date || banner.endDate}</td>
                       <td className="py-2 px-4">

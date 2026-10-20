@@ -6,6 +6,27 @@ import { useAuth } from '@/context/AuthContext';
 import Image from 'next/image';
 import AreaSelect from '@/components/AreaSelect';
 
+const uploadCategoryImage = async (file, folder) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('folder', folder);
+
+  const response = await fetch('/api/upload-image', {
+    method: 'POST',
+    body: formData
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Upload gagal');
+  }
+  if (!data.url) {
+    throw new Error('URL gambar tidak ditemukan dari Cloudinary');
+  }
+
+  return data.url;
+};
+
 export default function AdminSettingsPage() {
   const { user } = useAuth();
   // Telegram chat ID admin management
@@ -24,7 +45,7 @@ export default function AdminSettingsPage() {
   const bannerInputRef = useRef(null);
   const existingBannerInputRef = useRef(null);
   const [activeUploadCatId, setActiveUploadCatId] = useState(null);
-  const { uploadFile, deleteFile } = useStorage();
+  const { deleteFile } = useStorage();
   const [loading, setLoading] = useState(false);
   const [cats, setCats] = useState([]);
   const [catEdits, setCatEdits] = useState({}); // temp edits per cat id
@@ -522,7 +543,6 @@ export default function AdminSettingsPage() {
     }
   };
 
-  // Firebase Storage upload (replacing Cloudinary request)
   const handleChooseFile = () => {
     fileInputRef.current?.click?.();
   };
@@ -532,24 +552,17 @@ export default function AdminSettingsPage() {
     if (!file) return;
     try {
       setImgUploading(true);
-      const folder = 'categories';
-      const fileNameSlug = file.name.toLowerCase().replace(/[^a-z0-9._-]+/g,'-');
-      const now = Date.now();
-      const path = `${folder}/${now}-${fileNameSlug}`;
-      const downloadUrl = await uploadFile(file, path);
-      if (downloadUrl) {
-        // Check if uploading for existing category (edit mode)
-        if (activeUploadCatId) {
-          setEdit(activeUploadCatId, 'icon', downloadUrl);
-          setActiveUploadCatId(null);
-        } else {
-          // New category form
-          setIcon(downloadUrl);
-        }
+      const imageUrl = await uploadCategoryImage(file, 'categories/icons');
+      if (activeUploadCatId) {
+        setEdit(activeUploadCatId, 'icon', imageUrl);
+        setActiveUploadCatId(null);
+      } else {
+        setIcon(imageUrl);
       }
     } catch (err) {
       alert(err.message || 'Upload gagal');
     } finally {
+      setActiveUploadCatId(null);
       setImgUploading(false);
       e.target.value = '';
     }
@@ -564,12 +577,8 @@ export default function AdminSettingsPage() {
     if (!file) return;
     try {
       setBannerUploading(true);
-      const folder = 'categories/banners';
-      const fileNameSlug = file.name.toLowerCase().replace(/[^a-z0-9._-]+/g,'-');
-      const now = Date.now();
-      const path = `${folder}/${now}-${fileNameSlug}`;
-      const downloadUrl = await uploadFile(file, path);
-      if (downloadUrl) setBanner(downloadUrl);
+      const imageUrl = await uploadCategoryImage(file, 'categories/banners');
+      setBanner(imageUrl);
     } catch (err) {
       alert(err.message || 'Upload gagal');
     } finally {
@@ -587,17 +596,13 @@ export default function AdminSettingsPage() {
     const file = e.target.files?.[0];
     if (!file || !activeUploadCatId) return;
     try {
-      const folder = 'categories/banners';
-      const fileNameSlug = file.name.toLowerCase().replace(/[^a-z0-9._-]+/g,'-');
-      const now = Date.now();
-      const path = `${folder}/${now}-${fileNameSlug}`;
-      const downloadUrl = await uploadFile(file, path);
-      if (downloadUrl) {
-        setEdit(activeUploadCatId, 'banner', downloadUrl);
-      }
+      setBannerUploading(true);
+      const imageUrl = await uploadCategoryImage(file, 'categories/banners');
+      setEdit(activeUploadCatId, 'banner', imageUrl);
     } catch (err) {
       alert(err.message || 'Upload gagal');
     } finally {
+      setBannerUploading(false);
       setActiveUploadCatId(null);
       e.target.value = '';
     }
@@ -1029,7 +1034,7 @@ export default function AdminSettingsPage() {
                 onClick={handleChooseFile}
                 disabled={imgUploading}
                 className="px-3 py-2 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 border disabled:opacity-60"
-                title="Upload ke Firebase Storage"
+                title="Upload ke Cloudinary"
               >{imgUploading ? 'Mengunggah…' : 'Upload'}</button>
               <input
                 ref={fileInputRef}
@@ -1064,7 +1069,7 @@ export default function AdminSettingsPage() {
                 onClick={handleChooseBanner}
                 disabled={bannerUploading}
                 className="px-3 py-2 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 border disabled:opacity-60"
-                title="Upload ke Firebase Storage"
+                title="Upload ke Cloudinary"
               >{bannerUploading ? 'Mengunggah…' : 'Upload'}</button>
               <input
                 ref={bannerInputRef}
@@ -1221,7 +1226,8 @@ export default function AdminSettingsPage() {
                         setActiveUploadCatId(cat.id);
                         fileInputRef.current?.click();
                       }}
-                      className="px-3 py-2 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 border whitespace-nowrap"
+                      disabled={imgUploading}
+                      className="px-3 py-2 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 border whitespace-nowrap disabled:opacity-60"
                     >Upload Icon</button>
                   </div>
                   {(catEdits[cat.id]?.icon !== undefined ? catEdits[cat.id].icon : cat.icon)?.trim() && (
@@ -1247,8 +1253,9 @@ export default function AdminSettingsPage() {
                     <button
                       type="button"
                       onClick={() => handleChooseExistingBanner(cat.id)}
-                      className="px-3 py-2 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 border whitespace-nowrap"
-                    >Upload Banner</button>
+                      disabled={bannerUploading}
+                      className="px-3 py-2 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 border whitespace-nowrap disabled:opacity-60"
+                    >{bannerUploading ? 'Mengunggah…' : 'Upload Banner'}</button>
                   </div>
                   {(catEdits[cat.id]?.banner !== undefined ? catEdits[cat.id].banner : cat.banner)?.trim() && (
                     <div className="mt-2 text-xs text-gray-500">

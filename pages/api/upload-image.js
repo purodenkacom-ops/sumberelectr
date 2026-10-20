@@ -43,7 +43,16 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid upload payload' });
     }
 
-    const folder = process.env.CLOUDINARY_FOLDER || 'sumber/products';
+    const requestedFolder = Array.isArray(parsed.fields.folder)
+      ? parsed.fields.folder[0]
+      : parsed.fields.folder;
+    const allowedFolders = ['banners', 'categories/icons', 'categories/banners'];
+    if (requestedFolder !== undefined && !allowedFolders.includes(requestedFolder)) {
+      return res.status(400).json({ error: 'Invalid upload folder' });
+    }
+
+    const baseFolder = process.env.CLOUDINARY_FOLDER || 'sumber/products';
+    const folder = requestedFolder ? `${baseFolder}/${requestedFolder}` : baseFolder;
     const result = await cloudinary.uploader.upload(filePath, {
       folder,
       resource_type: 'image',
