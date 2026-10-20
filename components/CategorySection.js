@@ -74,9 +74,9 @@ const CategorySection = () => {
       <div
         className="w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32 rounded-xl border border-gray-200 bg-white flex items-center justify-center
                    overflow-hidden relative
-                   shadow-[0_2px_4px_rgba(0,0,0,0.08),0_6px_14px_rgba(0,0,0,0.06)]
-                   group-hover:shadow-[0_4px_10px_rgba(0,0,0,0.15),0_12px_28px_rgba(0,0,0,0.12)]
-                   group-active:scale-[0.97]
+                   shadow-[0_3px_6px_rgba(15,23,42,0.12),0_10px_18px_rgba(15,23,42,0.10),inset_0_1px_0_rgba(255,255,255,0.9)]
+                   group-hover:-translate-y-1 group-hover:shadow-[0_6px_10px_rgba(15,23,42,0.14),0_18px_30px_rgba(15,23,42,0.18),inset_0_1px_0_rgba(255,255,255,0.9)]
+                   group-active:translate-y-0 group-active:scale-[0.97]
                    transition-all duration-300"
         style={{ backgroundImage: 'linear-gradient(135deg,#f8fafc 0%,#eef2f6 55%,#f8fafc 100%)' }}
       >
@@ -86,7 +86,7 @@ const CategorySection = () => {
           alt={cat.name}
           width={88}
           height={88}
-          className="max-w-[88%] max-h-[88%] object-contain drop-shadow-sm"
+          className="absolute inset-0 h-full w-full object-cover"
           onError={(e) => { e.currentTarget.src = placeholderImg; }}
           loading="lazy"
         />
