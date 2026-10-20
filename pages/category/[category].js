@@ -1,6 +1,5 @@
 // pages/category/[category].js
 import { useState, useMemo, useEffect } from 'react';
-import Image from 'next/image';
 import { useRouter } from 'next/router';
 import ProductCard from '@/components/ProductCard';
 import ProductSortBar from '@/components/ProductSortBar';
@@ -8,6 +7,7 @@ import ProductSidebar from '@/components/ProductSidebar';
 import MiniNavbar from '@/components/MiniNavbar';
 import ProductFilterBar from '@/components/ProductFilterBar';
 import { computeAvailableFilters, applyProductFilters } from '@/utils/productFilters';
+import { supabase } from '@/utils/supabase';
 import { supabaseAdmin } from '@/utils/supabaseAdmin';
 
 import Head from 'next/head';
@@ -121,6 +121,7 @@ export async function getStaticProps({ params }) {
 export default function CategoryPage({ category, products, categoryData }) {
   const router = useRouter();
   const [sortMode, setSortMode] = useState('default');
+  const [categoryBanner, setCategoryBanner] = useState(categoryData?.banner || '');
   const [subCategoryFilter, setSubCategoryFilter] = useState('');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   // Produk filters (hanya aktif saat sub kategori dipilih)
@@ -130,6 +131,30 @@ export default function CategoryPage({ category, products, categoryData }) {
   const [ampereFilter, setAmpereFilter] = useState('');
   const [voltageFilter, setVoltageFilter] = useState('');
   const [displayTypeFilter, setDisplayTypeFilter] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    setCategoryBanner(categoryData?.banner || '');
+
+    const loadLatestBanner = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('categories')
+          .select('banner')
+          .eq('slug', category)
+          .is('parent_id', null)
+          .maybeSingle();
+
+        if (error) throw error;
+        if (active && data) setCategoryBanner(data.banner || '');
+      } catch (error) {
+        console.error('Gagal memuat banner kategori terbaru:', error);
+      }
+    };
+
+    loadLatestBanner();
+    return () => { active = false; };
+  }, [category, categoryData?.banner]);
 
   // Reset semua filter saat kategori berubah
   useEffect(() => {
@@ -315,15 +340,16 @@ export default function CategoryPage({ category, products, categoryData }) {
 
           {/* Main content */}
           <div>
-            {categoryData?.banner && (
+            {categoryBanner && (
               <div className="mb-6 w-full overflow-hidden shadow-sm flex justify-center bg-gray-50 rounded-xl">
-                <Image
-                  src={categoryData.banner}
-                  alt={categoryData.name || 'Category Banner'}
-                  width={800}
-                  height={200}
-                  className="w-full h-auto object-cover rounded-xl"
-                  priority
+                <img
+                  src={categoryBanner}
+                  alt={categoryData?.name || 'Category Banner'}
+                  className="block w-full h-auto object-cover rounded-xl"
+                  onError={() => {
+                    console.error('Gagal menampilkan banner kategori:', categoryBanner);
+                    setCategoryBanner('');
+                  }}
                 />
               </div>
             )}
