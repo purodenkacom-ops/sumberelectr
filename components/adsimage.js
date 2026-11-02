@@ -10,7 +10,14 @@ import { getProductRouteSlug } from '@/utils/productSlug';
 // - max (default 16): max products to rotate
 // - intervalMs (default 3500): auto-rotate interval
 // - className (optional): wrapper class
-export default function AdsImage({ userId, max = 16, intervalMs = 3500, transitionMs = 600, className = '' }) {
+export default function AdsImage({
+  userId,
+  max = 16,
+  intervalMs = 3500,
+  transitionMs = 600,
+  className = '',
+  desktopStacked = false,
+}) {
   const router = useRouter();
   const [items, setItems] = useState([]);
   const [index, setIndex] = useState(0);
@@ -111,63 +118,107 @@ export default function AdsImage({ userId, max = 16, intervalMs = 3500, transiti
 
   const current = items[index] || null;
   const previous = prevIndex != null ? items[prevIndex] : null;
+  const secondDesktopItem = items.length > 1 ? items[(index + 1) % items.length] : null;
 
-  const handleClick = () => {
-    if (!current) return;
-    router.push(`/product/${current.slug}`);
+  const handleClick = (item) => {
+    if (!item) return;
+    router.push(`/product/${item.slug}`);
   };
 
-  // 1:1 box using padding-bottom trick to avoid relying on aspect-ratio plugin
-  return (
-    <div className={`w-full ${className}`}>
-      <div className="relative w-full pb-[100%] overflow-hidden rounded-md">
-        {/* Previous (exiting) image */}
-        {previous && animating && (
-          <div className="absolute inset-0 pointer-events-none adsimage-out">
+  const renderItem = (item, label) => (
+    <button
+      type="button"
+      onClick={() => handleClick(item)}
+      className="relative block w-full cursor-pointer overflow-hidden rounded-md"
+      aria-label={item.alt}
+    >
+      <span className="relative block w-full pb-[100%]">
+        {item.video ? (
+          <video
+            src={item.video}
+            className="absolute inset-0 h-full w-full object-cover"
+            autoPlay
+            playsInline
+            loop
+            muted
+            preload="metadata"
+          />
+        ) : (
+          <Image
+            src={item.src}
+            alt={item.alt}
+            fill
+            sizes="(max-width: 1023px) 100vw, 400px"
+            className="object-cover"
+            priority={label === 'primary'}
+          />
+        )}
+      </span>
+    </button>
+  );
+
+  const renderPrimaryItem = () => (
+    <div className="relative w-full pb-[100%] overflow-hidden rounded-md">
+      {previous && animating && (
+        <div className="absolute inset-0 pointer-events-none adsimage-out">
+          <Image
+            src={previous.src}
+            alt={previous.alt}
+            fill
+            sizes="(max-width: 1023px) 100vw, 400px"
+            className="object-cover"
+            priority
+          />
+        </div>
+      )}
+
+      {current ? (
+        <button
+          type="button"
+          onClick={() => handleClick(current)}
+          className={`absolute inset-0 cursor-pointer ${animating ? 'adsimage-in' : 'adsimage-show'}`}
+          aria-label={current.alt}
+        >
+          {current.video ? (
+            <video
+              src={current.video}
+              className="absolute inset-0 h-full w-full object-cover"
+              autoPlay
+              playsInline
+              loop
+              muted
+              preload="metadata"
+            />
+          ) : (
             <Image
-              src={previous.src}
-              alt={previous.alt}
+              src={current.src}
+              alt={current.alt}
               fill
-              sizes="(max-width: 768px) 100vw, 300px"
+              sizes="(max-width: 1023px) 100vw, 400px"
               className="object-cover"
               priority
             />
-          </div>
-        )}
+          )}
+        </button>
+      ) : (
+        <div className="absolute inset-0 bg-gray-100" />
+      )}
+    </div>
+  );
 
-        {/* Current (entering/visible) image */}
-        {current ? (
-          <button
-            type="button"
-            onClick={handleClick}
-            className={`absolute inset-0 cursor-pointer ${animating ? 'adsimage-in' : 'adsimage-show'}`}
-            aria-label={current.alt}
-          >
-            {current.video ? (
-              <video
-                src={current.video}
-                className="absolute inset-0 w-full h-full object-cover"
-                autoPlay
-                playsInline
-                loop
-                muted
-                preload="metadata"
-              />
-            ) : (
-              <Image
-                src={current.src}
-                alt={current.alt}
-                fill
-                sizes="(max-width: 768px) 100vw, 300px"
-                className="object-cover"
-                priority
-              />
-            )}
-          </button>
-        ) : (
-          <div className="absolute inset-0 bg-gray-100" />
-        )}
+  const renderSecondDesktopItem = () => {
+    if (!desktopStacked || !secondDesktopItem) return null;
+    return (
+      <div className="hidden lg:block">
+        {renderItem(secondDesktopItem, 'secondary')}
       </div>
+    );
+  };
+
+  return (
+    <div className={`w-full space-y-3 ${className}`}>
+      {renderPrimaryItem()}
+      {renderSecondDesktopItem()}
       <style>{`
         @keyframes adsimageFadeIn {
           0% { opacity: 0; transform: scale(1.05); }
@@ -184,4 +235,3 @@ export default function AdsImage({ userId, max = 16, intervalMs = 3500, transiti
     </div>
   );
 }
-

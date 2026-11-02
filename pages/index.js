@@ -12,6 +12,7 @@ import { supabaseAdmin } from '@/utils/supabaseAdmin';
 import AdsImage from '@/components/adsimage';
 import Recomend from '@/components/Recomend';
 import HomeArticles from '@/components/HomeArticles';
+import HomepageRedesign from '@/components/HomepageRedesign';
 
 const siteUrlBase = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.purodenka.com';
 const siteUrl = siteUrlBase.endsWith('/') ? siteUrlBase : `${siteUrlBase}/`;
@@ -22,7 +23,7 @@ const SEO_DESCRIPTION = "Purodenka adalah toko peralatan listrik dan elektronik 
 const SEO_KEYWORDS = "toko peralatan listrik, elektronik industri, mcb, mccb, contactor, relay, power supply, smps, kabel duct, wiring duct, rotary switch, buzzer panel, din rail, panel listrik, aksesoris panel, sensor, saklar";
 
 
-const Homepage = ({ ogImage, ogImages = [], favoriteFish, recommendations = [], bannerMeta = [], farmInfo, favoritesSchema = [], recommendationsSchema = [], articles = [] }) => {
+const HomepageOriginal = ({ ogImage, ogImages = [], favoriteFish, recommendations = [], bannerMeta = [], farmInfo, favoritesSchema = [], recommendationsSchema = [], articles = [] }) => {
   const [showCartPopup, setShowCartPopup] = React.useState(false);
   const [selectedProduct, setSelectedProduct] = React.useState(null);
   const handleAddToCart = (productData) => {
@@ -304,6 +305,14 @@ const Homepage = ({ ogImage, ogImages = [], favoriteFish, recommendations = [], 
 };
 
 
+const Homepage = (props) => {
+  if (process.env.NEXT_PUBLIC_HOMEPAGE_VARIANT === 'legacy') {
+    return <HomepageOriginal {...props} />;
+  }
+
+  return <HomepageRedesign {...props} />;
+};
+
 export default Homepage;
 
 // Ambil gambar banner untuk Open Graph/Twitter dari koleksi 'banners' dan produk favorit dari Firestore
@@ -316,6 +325,15 @@ export async function getStaticProps() {
   let favoritesSchema = [];
   let recommendationsSchema = [];
   let articles = [];
+  let homepageSettings = {
+    banner2: { image: '', href: '' },
+    banner3: { image: '', href: '' },
+    socialLinks: {
+      instagram: 'https://www.instagram.com/purodenka',
+      facebook: 'https://facebook.com/purodenka',
+      whatsapp: '',
+    },
+  };
   const farmInfo = {
   storeName: process.env.NEXT_PUBLIC_STORE_NAME || 'Purodenka',
     contactName: process.env.NEXT_PUBLIC_BITESHIP_SHIPPER_NAME || '',
@@ -328,6 +346,25 @@ export async function getStaticProps() {
   };
   try {
     const now = Date.now();
+
+    try {
+      const { data: settingsRow, error: settingsError } = await supabaseAdmin
+        .from('settings')
+        .select('value')
+        .eq('type', 'homepage')
+        .maybeSingle();
+      if (settingsError) throw settingsError;
+      const savedSettings = settingsRow?.value || {};
+      homepageSettings = {
+        ...homepageSettings,
+        ...savedSettings,
+        banner2: { ...homepageSettings.banner2, ...savedSettings.banner2 },
+        banner3: { ...homepageSettings.banner3, ...savedSettings.banner3 },
+        socialLinks: { ...homepageSettings.socialLinks, ...savedSettings.socialLinks },
+      };
+    } catch (e) {
+      console.error('Failed to load homepage settings', e);
+    }
     
     // Ambil banners dari Supabase
     const { data: bannerRows } = await supabaseAdmin
@@ -478,5 +515,5 @@ export async function getStaticProps() {
   } catch (e) {
     console.error('getStaticProps error:', e);
   }
-  return { props: { ogImage, ogImages, favoriteFish, recommendations, bannerMeta, farmInfo, favoritesSchema, recommendationsSchema, articles }, revalidate: 86400 };
+  return { props: { ogImage, ogImages, favoriteFish, recommendations, bannerMeta, homepageSettings, farmInfo, favoritesSchema, recommendationsSchema, articles }, revalidate: 86400 };
 }

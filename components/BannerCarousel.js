@@ -2,14 +2,24 @@ import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/utils/supabase";
 import Image from "next/image";
 
-const BannerCarousel = () => {
-  const [images, setImages] = useState([]);
+const EMPTY_BANNERS = [];
+
+const BannerCarousel = ({ initialImages = EMPTY_BANNERS }) => {
+  const [images, setImages] = useState(() =>
+    initialImages
+      .map((image) => (typeof image === "string" ? image : image?.url))
+      .filter((image) => typeof image === "string" && image.trim())
+  );
+  const [loading, setLoading] = useState(initialImages.length === 0);
   const [current, setCurrent] = useState(0);
   const intervalRef = useRef(null);
 
   useEffect(() => {
+    if (initialImages.length > 0) return;
+
     const fetchBanners = async () => {
       try {
+        setLoading(true);
         const { data, error } = await supabase.from('banners').select('*');
         if (error) throw error;
         const imgArr = [];
@@ -22,10 +32,12 @@ const BannerCarousel = () => {
         setImages(imgArr);
       } catch (err) {
         console.error("Gagal fetch banners:", err);
+      } finally {
+        setLoading(false);
       }
     };
     fetchBanners();
-  }, []);
+  }, [initialImages]);
 
   useEffect(() => {
     if (images.length) {
@@ -70,8 +82,8 @@ const BannerCarousel = () => {
           />
         ))
       ) : (
-        <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
-          Memuat banner...
+        <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-500 text-sm">
+          {loading ? 'Memuat banner...' : 'Banner belum tersedia.'}
         </div>
       )}
 

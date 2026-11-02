@@ -24,6 +24,19 @@ The `pages/api` directory is mapped to `/api/*`. Files in this directory are tre
 
 This project uses [`next/font`](https://nextjs.org/docs/pages/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Homepage variants
+
+The approved marketplace homepage is the default. Set
+`NEXT_PUBLIC_HOMEPAGE_VARIANT=legacy` to restore the previous homepage; the
+value is read during the Next.js build, so changing it requires a new build and
+deployment.
+
+Admins can update homepage banner 2 and banner 3, their optional destination
+links, and the Instagram, Facebook, and WhatsApp header links in **Admin →
+Benner Setting → Banner Homepage & Media Sosial**. Banner and social settings
+are stored in the `settings` table under type `homepage`; uploaded images use
+the existing Cloudinary banner upload flow.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

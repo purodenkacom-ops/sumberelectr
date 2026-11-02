@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
+import Image from 'next/image';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faSearch, faCartShopping } from '@fortawesome/free-solid-svg-icons';
-import { FaWhatsapp } from 'react-icons/fa';
+import { FaFacebook, FaInstagram, FaWhatsapp } from 'react-icons/fa';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/utils/supabase';
 import TransactionMarquee from './TransactionMarquee';
 
-const Navbar = () => {
+const Navbar = ({ variant = 'default', socialLinks = {} }) => {
   const router = useRouter();
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
@@ -160,6 +162,144 @@ const Navbar = () => {
     const waLink = `https://wa.me/${number}?text=${encodeURIComponent(msg)}`;
     if (typeof window !== 'undefined') window.open(waLink, '_blank');
   };
+
+  if (variant === 'marketplace') {
+    return (
+      <>
+        <div ref={fixedRef} className="fixed top-0 z-50 w-full bg-white shadow-md">
+          <div className="bg-red-700 text-white">
+            <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-1 text-[10px]">
+              <div className="flex items-center gap-2">
+                <span>Ikuti kami di</span>
+                {socialLinks.instagram && (
+                  <a
+                    href={socialLinks.instagram}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Instagram Purodenka"
+                    className="transition hover:text-red-200"
+                  >
+                    <FaInstagram size={13} aria-hidden="true" />
+                  </a>
+                )}
+                {socialLinks.facebook && (
+                  <a
+                    href={socialLinks.facebook}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Facebook Purodenka"
+                    className="transition hover:text-red-200"
+                  >
+                    <FaFacebook size={12} aria-hidden="true" />
+                  </a>
+                )}
+                {socialLinks.whatsapp ? (
+                  <a
+                    href={socialLinks.whatsapp}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="WhatsApp Purodenka"
+                    className="transition hover:text-red-200"
+                  >
+                    <FaWhatsapp size={13} aria-hidden="true" />
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={goWhatsApp}
+                    aria-label="WhatsApp Purodenka"
+                    className="transition hover:text-red-200"
+                  >
+                    <FaWhatsapp size={13} aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {!userId && (
+                  <>
+                    <Link href="/register-buyer" className="hover:underline">Daftar</Link>
+                    <span aria-hidden="true">|</span>
+                  </>
+                )}
+                <Link href={userId ? '/account' : '/login'} className="hover:underline">
+                  {userId ? 'Akun' : 'Log In'}
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-red-800 text-white">
+            <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-2 md:flex-nowrap md:gap-5">
+              <Link href="/" className="flex shrink-0 items-center gap-2" aria-label="Purodenka - Beranda">
+                <Image
+                  src="/purodenka-logo.png"
+                  alt="Logo Purodenka"
+                  width={56}
+                  height={52}
+                  className="h-10 w-auto object-contain md:h-12"
+                  priority
+                />
+                <span className="whitespace-nowrap text-xs font-extrabold leading-tight tracking-wide sm:text-sm md:text-lg">
+                  PURODENKA
+                </span>
+              </Link>
+              <span className="hidden shrink-0 text-[11px] font-semibold tracking-wider lg:block">
+                POWER YOU CAN TRUST
+              </span>
+
+              <form onSubmit={handleSearchSubmit} className="relative order-3 w-full md:order-none md:flex-1">
+                <input
+                  type="search"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full rounded-sm border border-gray-300 bg-white py-2 pl-3 pr-12 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-red-300"
+                  placeholder="Cari MCB, kabel, power supply, atau alat listrik..."
+                  aria-label="Cari produk"
+                  autoComplete="off"
+                />
+                <button
+                  type="submit"
+                  className="absolute inset-y-0 right-0 flex w-10 items-center justify-center bg-red-700 text-white hover:bg-red-600"
+                  aria-label="Cari"
+                >
+                  <FontAwesomeIcon icon={faSearch} />
+                </button>
+              </form>
+
+              <button
+                type="button"
+                onClick={goCart}
+                aria-label="Keranjang"
+                className="relative ml-auto shrink-0 px-1 text-white hover:text-red-100 md:ml-0"
+              >
+                <FontAwesomeIcon icon={faCartShopping} size="lg" />
+                {cartCount > 0 && (
+                  <span className="absolute -right-2 -top-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-red-800">
+                    {cartCount > 99 ? '99+' : cartCount}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="border-b border-gray-200 bg-white">
+            <div className="mx-auto flex max-w-7xl items-center gap-2 px-4 py-1.5 text-[10px] text-gray-600 md:text-xs">
+              <span className="shrink-0 font-semibold text-gray-800">Lokasi Anda</span>
+              <span className="truncate">
+                {loadingLoc ? 'Mendeteksi lokasi...' : alamat}
+              </span>
+              {userId && (
+                <span className="ml-auto hidden shrink-0 text-red-800 sm:inline">
+                  Halo {buyerName ? buyerName.split(' ')[0] : 'Sobat'}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        <div style={{ height: `${navHeight}px` }} />
+      </>
+    );
+  }
 
   return (
     <div>

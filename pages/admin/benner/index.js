@@ -45,6 +45,16 @@ const compressImage = (file, maxWidth = 1200, quality = 0.7) =>
     reader.readAsDataURL(file);
   });
 
+const DEFAULT_HOMEPAGE_SETTINGS = {
+  banner2: { image: '', href: '' },
+  banner3: { image: '', href: '' },
+  socialLinks: {
+    instagram: 'https://www.instagram.com/purodenka',
+    facebook: 'https://facebook.com/purodenka',
+    whatsapp: '',
+  },
+};
+
 export default function BannerAdminPage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
@@ -61,6 +71,13 @@ export default function BannerAdminPage() {
   const [success, setSuccess] = useState('');
   const [editId, setEditId] = useState(null);
   const fileInputRefs = [useRef(), useRef(), useRef(), useRef(), useRef()];
+  const [homepageSettings, setHomepageSettings] = useState(DEFAULT_HOMEPAGE_SETTINGS);
+  const [homepageFiles, setHomepageFiles] = useState({ banner2: null, banner3: null });
+  const [homepageLoading, setHomepageLoading] = useState(false);
+  const [homepageSaving, setHomepageSaving] = useState(false);
+  const [homepageError, setHomepageError] = useState('');
+  const [homepageSuccess, setHomepageSuccess] = useState('');
+  const homepageFileRefs = { banner2: useRef(null), banner3: useRef(null) };
 
   const { user: authUser } = useAuth();
 
@@ -71,7 +88,98 @@ export default function BannerAdminPage() {
     setUser(authUser);
     setLoading(false);
     fetchBanners().catch((err) => setError(err.message || 'Gagal memuat banner.'));
+    setHomepageLoading(true);
+    fetch('/api/homepage-settings')
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Gagal memuat pengaturan homepage.');
+        setHomepageSettings({
+          ...DEFAULT_HOMEPAGE_SETTINGS,
+          ...data,
+          banner2: { ...DEFAULT_HOMEPAGE_SETTINGS.banner2, ...data.banner2 },
+          banner3: { ...DEFAULT_HOMEPAGE_SETTINGS.banner3, ...data.banner3 },
+          socialLinks: { ...DEFAULT_HOMEPAGE_SETTINGS.socialLinks, ...data.socialLinks },
+        });
+      })
+      .catch((err) => setHomepageError(err.message || 'Gagal memuat pengaturan homepage.'))
+      .finally(() => setHomepageLoading(false));
   }, [authUser, router]);
+
+  const updateHomepageSetting = (section, field, value) => {
+    setHomepageSettings((current) => ({
+      ...current,
+      [section]: { ...current[section], [field]: value },
+    }));
+  };
+
+  const handleSaveHomepageSettings = async (e) => {
+    e.preventDefault();
+    setHomepageError('');
+    setHomepageSuccess('');
+    setHomepageSaving(true);
+
+    try {
+      const nextSettings = {
+        ...homepageSettings,
+        banner2: { ...homepageSettings.banner2 },
+        banner3: { ...homepageSettings.banner3 },
+        socialLinks: { ...homepageSettings.socialLinks },
+      };
+
+      for (const key of ['banner2', 'banner3']) {
+        const file = homepageFiles[key];
+        if (!file) continue;
+
+        const compressed = await compressImage(file);
+        const formData = new FormData();
+        formData.append('file', compressed);
+        formData.append('folder', 'banners');
+        const uploadResponse = await fetch('/api/upload-image', {
+          method: 'POST',
+          body: formData,
+        });
+        const uploadData = await uploadResponse.json();
+        if (!uploadResponse.ok) {
+          throw new Error(uploadData.error || `Gagal mengunggah ${key}.`);
+        }
+        const imageUrl = uploadData.url || uploadData.secure_url;
+        if (!imageUrl) throw new Error(`URL gambar ${key} tidak diterima.`);
+        nextSettings[key].image = imageUrl;
+      }
+
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!session?.access_token) throw new Error('Sesi admin berakhir. Silakan login kembali.');
+
+      const response = await fetch('/api/homepage-settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(nextSettings),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Gagal menyimpan pengaturan homepage.');
+
+      setHomepageSettings({
+        ...DEFAULT_HOMEPAGE_SETTINGS,
+        ...result,
+        banner2: { ...DEFAULT_HOMEPAGE_SETTINGS.banner2, ...result.banner2 },
+        banner3: { ...DEFAULT_HOMEPAGE_SETTINGS.banner3, ...result.banner3 },
+        socialLinks: { ...DEFAULT_HOMEPAGE_SETTINGS.socialLinks, ...result.socialLinks },
+      });
+      setHomepageFiles({ banner2: null, banner3: null });
+      Object.values(homepageFileRefs).forEach((ref) => {
+        if (ref.current) ref.current.value = '';
+      });
+      setHomepageSuccess('Pengaturan homepage berhasil disimpan.');
+    } catch (err) {
+      setHomepageError(err.message || 'Gagal menyimpan pengaturan homepage.');
+    } finally {
+      setHomepageSaving(false);
+    }
+  };
 
   const fetchBanners = async () => {
     const { data, error } = await supabase.from('banners').select('*').order('created_at', { ascending: false });
@@ -223,6 +331,112 @@ export default function BannerAdminPage() {
       <div className="min-h-screen bg-white px-6 py-10">
         <div className="max-w-3xl mx-auto">
           <h1 className="text-2xl font-bold text-primary mb-6">Manajemen Banner Promosi</h1>
+
+          <form
+            onSubmit={handleSaveHomepageSettings}
+            className="mb-10 rounded-xl border border-red-200 bg-white p-6 shadow-sm"
+          >
+            <h2 className="mb-2 text-lg font-semibold text-red-700">
+              Banner Homepage & Media Sosial
+            </h2>
+            <p className="mb-5 text-sm text-gray-600">
+              Atur banner promosi kedua dan ketiga untuk tampilan desktop, serta tautan media sosial di header.
+              Tampilan mobile dan tablet tetap menggunakan banner CS yang sama.
+            </p>
+
+            {homepageError && (
+              <div role="alert" className="mb-3 rounded bg-red-100 p-3 text-sm text-red-700">
+                {homepageError}
+              </div>
+            )}
+            {homepageSuccess && (
+              <div role="status" className="mb-3 rounded bg-green-100 p-3 text-sm text-green-700">
+                {homepageSuccess}
+              </div>
+            )}
+            {homepageLoading ? (
+              <p className="py-4 text-sm text-gray-500">Memuat pengaturan homepage...</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                  {['banner2', 'banner3'].map((key, index) => (
+                    <fieldset key={key} className="rounded-lg border border-gray-200 p-4">
+                      <legend className="px-2 font-semibold text-gray-800">
+                        Banner {index + 2}
+                      </legend>
+                      {homepageSettings[key].image && (
+                        <Image
+                          src={homepageSettings[key].image}
+                          alt={`Preview Banner ${index + 2}`}
+                          width={600}
+                          height={180}
+                          className="mb-3 h-32 w-full rounded border object-cover"
+                        />
+                      )}
+                      <label className="mb-1 block text-sm font-medium" htmlFor={`${key}-image`}>
+                        Ganti gambar
+                      </label>
+                      <input
+                        id={`${key}-image`}
+                        ref={homepageFileRefs[key]}
+                        type="file"
+                        accept="image/*"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0] || null;
+                          setHomepageFiles((current) => ({ ...current, [key]: file }));
+                        }}
+                        className="mb-3 w-full rounded border border-gray-300 p-2 text-sm"
+                      />
+                      <label className="mb-1 block text-sm font-medium" htmlFor={`${key}-href`}>
+                        Link tujuan (opsional)
+                      </label>
+                      <input
+                        id={`${key}-href`}
+                        type="url"
+                        value={homepageSettings[key].href}
+                        onChange={(event) => updateHomepageSetting(key, 'href', event.target.value)}
+                        placeholder="https://..."
+                        className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                      />
+                    </fieldset>
+                  ))}
+                </div>
+
+                <fieldset className="mt-5 rounded-lg border border-gray-200 p-4">
+                  <legend className="px-2 font-semibold text-gray-800">Tautan Media Sosial Header</legend>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    {[
+                      ['instagram', 'Instagram'],
+                      ['facebook', 'Facebook'],
+                      ['whatsapp', 'WhatsApp'],
+                    ].map(([key, label]) => (
+                      <div key={key}>
+                        <label className="mb-1 block text-sm font-medium" htmlFor={`social-${key}`}>
+                          {label}
+                        </label>
+                        <input
+                          id={`social-${key}`}
+                          type="url"
+                          value={homepageSettings.socialLinks[key]}
+                          onChange={(event) => updateHomepageSetting('socialLinks', key, event.target.value)}
+                          placeholder="https://..."
+                          className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <button
+                  type="submit"
+                  disabled={homepageSaving}
+                  className="mt-5 rounded-lg bg-primary px-6 py-2 font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {homepageSaving ? 'Menyimpan...' : 'Simpan Banner & Media Sosial'}
+                </button>
+              </>
+            )}
+          </form>
 
           {/* Form Tambah/Ubah Banner */}
           <form
