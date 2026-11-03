@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/utils/supabaseAdmin';
 
 const DEFAULT_SETTINGS = {
+  carouselBanners: null,
   banner2: { image: '', href: '' },
   banner3: { image: '', href: '' },
   socialLinks: {
@@ -56,6 +57,12 @@ export default async function handler(req, res) {
     return res.status(200).json({
       ...DEFAULT_SETTINGS,
       ...value,
+      carouselBanners: Array.isArray(value.carouselBanners)
+        ? value.carouselBanners.slice(0, 5).map((banner) => ({
+            image: typeof banner?.image === 'string' ? banner.image : '',
+            href: typeof banner?.href === 'string' ? banner.href : '',
+          }))
+        : null,
       banner2: { ...DEFAULT_SETTINGS.banner2, ...value.banner2 },
       banner3: { ...DEFAULT_SETTINGS.banner3, ...value.banner3 },
       socialLinks: { ...DEFAULT_SETTINGS.socialLinks, ...value.socialLinks },
@@ -71,8 +78,16 @@ export default async function handler(req, res) {
     const adminUser = await requireAdmin(req);
     if (!adminUser) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { banner2, banner3, socialLinks } = req.body || {};
+    const { carouselBanners, banner2, banner3, socialLinks } = req.body || {};
     if (
+      !Array.isArray(carouselBanners) ||
+      carouselBanners.length > 5 ||
+      !carouselBanners.every((banner) =>
+        banner &&
+        typeof banner === 'object' &&
+        typeof banner.image === 'string' &&
+        typeof banner.href === 'string'
+      ) ||
       !banner2 || typeof banner2 !== 'object' ||
       !banner3 || typeof banner3 !== 'object' ||
       !socialLinks || typeof socialLinks !== 'object'
@@ -81,6 +96,7 @@ export default async function handler(req, res) {
     }
 
     const settings = {
+      carouselBanners: carouselBanners.map(({ image, href }) => ({ image, href })),
       banner2: { image: banner2.image, href: banner2.href },
       banner3: { image: banner3.image, href: banner3.href },
       socialLinks: {
@@ -93,6 +109,7 @@ export default async function handler(req, res) {
       !banner2 || !banner3 || !socialLinks ||
       !isValidUrl(banner2.image) || !isValidUrl(banner2.href) ||
       !isValidUrl(banner3.image) || !isValidUrl(banner3.href) ||
+      !carouselBanners.every((banner) => isValidUrl(banner.image) && isValidUrl(banner.href)) ||
       !isValidUrl(socialLinks.instagram) ||
       !isValidUrl(socialLinks.facebook) ||
       !isValidUrl(socialLinks.whatsapp)

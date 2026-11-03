@@ -357,6 +357,11 @@ export default function ProductListPage() {
     setError('');
     setSuccess('');
     if (!validateForm()) return;
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session?.access_token) {
+      setError(sessionError?.message || 'Sesi admin berakhir. Silakan login kembali.');
+      return;
+    }
     setUploading(true);
 
     // Upload & compress images
@@ -366,30 +371,41 @@ export default function ProductListPage() {
     if (form.imageLinks && form.imageLinks.length > 0) {
       imageUrls = [...imageUrls, ...form.imageLinks];
     }
-    for (let i = 0; i < 3; i++) {
-      if (form.images[i]) {
-        const compressed = await compressImage(form.images[i]);
-        const fd = new FormData();
-        fd.append('file', compressed);
-        const resp = await fetch('/api/upload-image', { method: 'POST', body: fd });
-        if (!resp.ok) throw new Error('cloudinary upload failed');
-        const data = await resp.json();
-        const url = data?.url;
-        const pubId = data?.public_id || '';
+    try {
+      for (let i = 0; i < 3; i++) {
+        if (form.images[i]) {
+          const compressed = await compressImage(form.images[i]);
+          const fd = new FormData();
+          fd.append('file', compressed);
+          const resp = await fetch('/api/upload-image', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            body: fd,
+          });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.error || 'Gagal mengunggah gambar ke Cloudinary.');
+          const url = data?.url;
+          const pubId = data?.public_id || '';
+          if (!url) throw new Error('URL gambar tidak diterima dari Cloudinary.');
 
-        // If editing, delete old Firebase Storage image if replaced and was a Firebase URL
-        if (editId && form.existingImages[i]) {
-          try {
-            const match = form.existingImages[i].match(/\/o\/(.*?)\?/);
-            const path = match ? decodeURIComponent(match[1]) : null;
-            if (path) {
-              // skip old Firebase Storage delete - images now on Cloudinary
-            }
-          } catch (e) {}
+          // If editing, delete old Firebase Storage image if replaced and was a Firebase URL
+          if (editId && form.existingImages[i]) {
+            try {
+              const match = form.existingImages[i].match(/\/o\/(.*?)\?/);
+              const path = match ? decodeURIComponent(match[1]) : null;
+              if (path) {
+                // skip old Firebase Storage delete - images now on Cloudinary
+              }
+            } catch (e) {}
+          }
+          imageUrls[i] = url;
+          cloudPublicIds[i] = pubId;
         }
-        imageUrls[i] = url;
-        cloudPublicIds[i] = pubId;
       }
+    } catch (uploadError) {
+      setError(uploadError.message || 'Gagal mengunggah gambar ke Cloudinary.');
+      setUploading(false);
+      return;
     }
 
   const catDoc = categoryDocs.find(c => c.name === form.category && !c.parentId);

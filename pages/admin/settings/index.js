@@ -7,12 +7,17 @@ import Image from 'next/image';
 import AreaSelect from '@/components/AreaSelect';
 
 const uploadCategoryImage = async (file, folder) => {
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw sessionError;
+  if (!session?.access_token) throw new Error('Sesi admin berakhir. Silakan login kembali.');
+
   const formData = new FormData();
   formData.append('file', file);
   formData.append('folder', folder);
 
   const response = await fetch('/api/upload-image', {
     method: 'POST',
+    headers: { Authorization: `Bearer ${session.access_token}` },
     body: formData
   });
   const data = await response.json();

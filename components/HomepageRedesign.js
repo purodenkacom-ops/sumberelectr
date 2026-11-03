@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useAuth } from '@/context/AuthContext';
@@ -23,6 +23,13 @@ export default function HomepageRedesign({
   const { user } = useAuth();
   const accountHref = user ? '/account' : '/login';
   const [homepageSettings, setHomepageSettings] = useState(initialHomepageSettings);
+  const carouselConfigured = Array.isArray(homepageSettings?.carouselBanners);
+  const carouselImages = useMemo(
+    () => carouselConfigured
+      ? homepageSettings.carouselBanners.filter((banner) => banner?.image)
+      : bannerMeta,
+    [bannerMeta, carouselConfigured, homepageSettings?.carouselBanners]
+  );
 
   useEffect(() => {
     let active = true;
@@ -107,7 +114,7 @@ export default function HomepageRedesign({
 
       <main className="mx-auto max-w-7xl px-0 pb-8 pt-4 sm:px-4">
         <section aria-label="Banner utama" className="overflow-hidden bg-white lg:rounded-sm">
-          <BannerCarousel initialImages={bannerMeta} />
+          <BannerCarousel initialImages={carouselImages} fallbackToLegacy={!carouselConfigured} />
         </section>
 
         <section className="mt-4">

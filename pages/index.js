@@ -326,6 +326,7 @@ export async function getStaticProps() {
   let recommendationsSchema = [];
   let articles = [];
   let homepageSettings = {
+    carouselBanners: null,
     banner2: { image: '', href: '' },
     banner3: { image: '', href: '' },
     socialLinks: {
@@ -358,6 +359,9 @@ export async function getStaticProps() {
       homepageSettings = {
         ...homepageSettings,
         ...savedSettings,
+        carouselBanners: Array.isArray(savedSettings.carouselBanners)
+          ? savedSettings.carouselBanners.slice(0, 5)
+          : null,
         banner2: { ...homepageSettings.banner2, ...savedSettings.banner2 },
         banner3: { ...homepageSettings.banner3, ...savedSettings.banner3 },
         socialLinks: { ...homepageSettings.socialLinks, ...savedSettings.socialLinks },
@@ -402,7 +406,7 @@ export async function getStaticProps() {
     raw.sort((a, b) => (b.priority - a.priority) || (b.createdAt - a.createdAt) || (a.order - b.order));
     const seen = new Set();
     for (const r of raw) {
-      if (bannerMeta.length >= 4) break;
+      if (bannerMeta.length >= 5) break;
       if (seen.has(r.url)) continue;
       seen.add(r.url);
       bannerMeta.push({ url: r.url, alt: r.alt, width: r.width, height: r.height });

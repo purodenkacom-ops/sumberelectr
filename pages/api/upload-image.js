@@ -1,5 +1,6 @@
 import { v2 as cloudinary } from 'cloudinary';
 import formidable from 'formidable';
+import { supabaseAdmin } from '@/utils/supabaseAdmin';
 
 export const config = {
   api: {
@@ -7,6 +8,23 @@ export const config = {
     sizeLimit: '12mb'
   }
 };
+
+async function requireAdmin(req) {
+  const authorization = req.headers.authorization || '';
+  const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+  if (!token) return false;
+
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !user) return false;
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  return !profileError && profile?.role === 'admin';
+}
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -21,6 +39,10 @@ export default async function handler(req, res) {
   }
 
   try {
+    if (!(await requireAdmin(req))) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
       return res.status(500).json({ error: 'Cloudinary env not configured' });
     }

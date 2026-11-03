@@ -46,6 +46,7 @@ const compressImage = (file, maxWidth = 1200, quality = 0.7) =>
   });
 
 const DEFAULT_HOMEPAGE_SETTINGS = {
+  carouselBanners: Array.from({ length: 5 }, () => ({ image: '', href: '' })),
   banner2: { image: '', href: '' },
   banner3: { image: '', href: '' },
   socialLinks: {
@@ -72,12 +73,17 @@ export default function BannerAdminPage() {
   const [editId, setEditId] = useState(null);
   const fileInputRefs = [useRef(), useRef(), useRef(), useRef(), useRef()];
   const [homepageSettings, setHomepageSettings] = useState(DEFAULT_HOMEPAGE_SETTINGS);
-  const [homepageFiles, setHomepageFiles] = useState({ banner2: null, banner3: null });
+  const [homepageFiles, setHomepageFiles] = useState({
+    carouselBanners: Array(5).fill(null),
+    banner2: null,
+    banner3: null,
+  });
   const [homepageLoading, setHomepageLoading] = useState(false);
   const [homepageSaving, setHomepageSaving] = useState(false);
   const [homepageError, setHomepageError] = useState('');
   const [homepageSuccess, setHomepageSuccess] = useState('');
   const homepageFileRefs = { banner2: useRef(null), banner3: useRef(null) };
+  const carouselFileRefs = useRef(Array(5).fill(null));
 
   const { user: authUser } = useAuth();
 
@@ -96,6 +102,10 @@ export default function BannerAdminPage() {
         setHomepageSettings({
           ...DEFAULT_HOMEPAGE_SETTINGS,
           ...data,
+          carouselBanners: Array.from({ length: 5 }, (_, index) => ({
+            ...DEFAULT_HOMEPAGE_SETTINGS.carouselBanners[index],
+            ...(Array.isArray(data.carouselBanners) ? data.carouselBanners[index] : null),
+          })),
           banner2: { ...DEFAULT_HOMEPAGE_SETTINGS.banner2, ...data.banner2 },
           banner3: { ...DEFAULT_HOMEPAGE_SETTINGS.banner3, ...data.banner3 },
           socialLinks: { ...DEFAULT_HOMEPAGE_SETTINGS.socialLinks, ...data.socialLinks },
@@ -112,6 +122,14 @@ export default function BannerAdminPage() {
     }));
   };
 
+  const updateCarouselBanner = (index, field, value) => {
+    setHomepageSettings((current) => {
+      const carouselBanners = [...current.carouselBanners];
+      carouselBanners[index] = { ...carouselBanners[index], [field]: value };
+      return { ...current, carouselBanners };
+    });
+  };
+
   const handleSaveHomepageSettings = async (e) => {
     e.preventDefault();
     setHomepageError('');
@@ -119,12 +137,38 @@ export default function BannerAdminPage() {
     setHomepageSaving(true);
 
     try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!session?.access_token) throw new Error('Sesi admin berakhir. Silakan login kembali.');
+
       const nextSettings = {
         ...homepageSettings,
+        carouselBanners: homepageSettings.carouselBanners.map((banner) => ({ ...banner })),
         banner2: { ...homepageSettings.banner2 },
         banner3: { ...homepageSettings.banner3 },
         socialLinks: { ...homepageSettings.socialLinks },
       };
+
+      for (let index = 0; index < nextSettings.carouselBanners.length; index += 1) {
+        const file = homepageFiles.carouselBanners[index];
+        if (!file) continue;
+
+        const compressed = await compressImage(file);
+        const formData = new FormData();
+        formData.append('file', compressed);
+        formData.append('folder', 'banners');
+        const uploadResponse = await fetch('/api/upload-image', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          body: formData,
+        });
+        const uploadData = await uploadResponse.json();
+        if (!uploadResponse.ok) {
+          throw new Error(uploadData.error || `Gagal mengunggah banner ${index + 1}.`);
+        }
+        if (!uploadData.url) throw new Error(`URL banner ${index + 1} tidak diterima.`);
+        nextSettings.carouselBanners[index].image = uploadData.url;
+      }
 
       for (const key of ['banner2', 'banner3']) {
         const file = homepageFiles[key];
@@ -136,6 +180,7 @@ export default function BannerAdminPage() {
         formData.append('folder', 'banners');
         const uploadResponse = await fetch('/api/upload-image', {
           method: 'POST',
+          headers: { Authorization: `Bearer ${session.access_token}` },
           body: formData,
         });
         const uploadData = await uploadResponse.json();
@@ -146,10 +191,6 @@ export default function BannerAdminPage() {
         if (!imageUrl) throw new Error(`URL gambar ${key} tidak diterima.`);
         nextSettings[key].image = imageUrl;
       }
-
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) throw sessionError;
-      if (!session?.access_token) throw new Error('Sesi admin berakhir. Silakan login kembali.');
 
       const response = await fetch('/api/homepage-settings', {
         method: 'POST',
@@ -165,11 +206,22 @@ export default function BannerAdminPage() {
       setHomepageSettings({
         ...DEFAULT_HOMEPAGE_SETTINGS,
         ...result,
+        carouselBanners: Array.from({ length: 5 }, (_, index) => ({
+          ...DEFAULT_HOMEPAGE_SETTINGS.carouselBanners[index],
+          ...(Array.isArray(result.carouselBanners) ? result.carouselBanners[index] : null),
+        })),
         banner2: { ...DEFAULT_HOMEPAGE_SETTINGS.banner2, ...result.banner2 },
         banner3: { ...DEFAULT_HOMEPAGE_SETTINGS.banner3, ...result.banner3 },
         socialLinks: { ...DEFAULT_HOMEPAGE_SETTINGS.socialLinks, ...result.socialLinks },
       });
-      setHomepageFiles({ banner2: null, banner3: null });
+      setHomepageFiles({
+        carouselBanners: Array(5).fill(null),
+        banner2: null,
+        banner3: null,
+      });
+      carouselFileRefs.current.forEach((input) => {
+        if (input) input.value = '';
+      });
       Object.values(homepageFileRefs).forEach((ref) => {
         if (ref.current) ref.current.value = '';
       });
@@ -239,6 +291,10 @@ export default function BannerAdminPage() {
     setUploading(true);
 
     try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!session?.access_token) throw new Error('Sesi admin berakhir. Silakan login kembali.');
+
       const imageUrls = [...form.existingImages];
       for (let i = 0; i < 5; i++) {
         if (form.images[i]) {
@@ -246,7 +302,11 @@ export default function BannerAdminPage() {
           const fd = new FormData();
           fd.append('file', compressed);
           fd.append('folder', 'banners');
-          const res = await fetch('/api/upload-image', { method: 'POST', body: fd });
+          const res = await fetch('/api/upload-image', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            body: fd,
+          });
           const uploadData = await res.json();
           if (!res.ok) {
             throw new Error(uploadData.error || 'Gagal mengunggah gambar banner ke Cloudinary.');
@@ -329,19 +389,17 @@ export default function BannerAdminPage() {
   return (
     <AdminLayout>
       <div className="min-h-screen bg-white px-6 py-10">
-        <div className="max-w-3xl mx-auto">
-          <h1 className="text-2xl font-bold text-primary mb-6">Manajemen Banner Promosi</h1>
+        <div className="mx-auto max-w-5xl">
+          <h1 className="mb-6 text-2xl font-bold text-primary">Pengaturan Banner Homepage</h1>
 
           <form
             onSubmit={handleSaveHomepageSettings}
             className="mb-10 rounded-xl border border-red-200 bg-white p-6 shadow-sm"
           >
-            <h2 className="mb-2 text-lg font-semibold text-red-700">
-              Banner Homepage & Media Sosial
-            </h2>
+            <h2 className="mb-2 text-lg font-semibold text-red-700">Banner Utama Carousel</h2>
             <p className="mb-5 text-sm text-gray-600">
-              Atur banner promosi kedua dan ketiga untuk tampilan desktop, serta tautan media sosial di header.
-              Tampilan mobile dan tablet tetap menggunakan banner CS yang sama.
+              Atur hingga lima banner yang tampil bergantian di bagian atas homepage. Gambar diunggah ke Cloudinary;
+              tautan tujuan bersifat opsional.
             </p>
 
             {homepageError && (
@@ -358,6 +416,101 @@ export default function BannerAdminPage() {
               <p className="py-4 text-sm text-gray-500">Memuat pengaturan homepage...</p>
             ) : (
               <>
+                <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {homepageSettings.carouselBanners.map((banner, index) => {
+                    const selectedFile = homepageFiles.carouselBanners[index];
+                    return (
+                      <fieldset
+                        key={`carousel-banner-${index}`}
+                        className="min-w-0 rounded-xl border border-gray-200 bg-gray-50 p-4"
+                      >
+                        <legend className="px-2 font-semibold text-gray-800">
+                          Banner Utama {index + 1}
+                        </legend>
+                        <div className="relative mb-3 aspect-[16/7] overflow-hidden rounded-lg border bg-white">
+                          {banner.image ? (
+                            <Image
+                              src={banner.image}
+                              alt={`Preview banner utama ${index + 1}`}
+                              fill
+                              sizes="(max-width: 640px) 100vw, 33vw"
+                              className="object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full items-center justify-center text-sm text-gray-400">
+                              Belum ada gambar
+                            </div>
+                          )}
+                        </div>
+                        <label
+                          className="mb-1 block text-sm font-medium"
+                          htmlFor={`carousel-banner-${index}-image`}
+                        >
+                          {banner.image ? 'Ganti gambar' : 'Pilih gambar'}
+                        </label>
+                        <input
+                          id={`carousel-banner-${index}-image`}
+                          ref={(element) => { carouselFileRefs.current[index] = element; }}
+                          type="file"
+                          accept="image/*"
+                          disabled={homepageSaving}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0] || null;
+                            setHomepageFiles((current) => {
+                              const carouselFiles = [...current.carouselBanners];
+                              carouselFiles[index] = file;
+                              return { ...current, carouselBanners: carouselFiles };
+                            });
+                          }}
+                          className="mb-1 w-full rounded border border-gray-300 bg-white p-2 text-sm"
+                        />
+                        {selectedFile && (
+                          <p className="mb-2 truncate text-xs text-gray-500" title={selectedFile.name}>
+                            Siap diunggah: {selectedFile.name}
+                          </p>
+                        )}
+                        <label
+                          className="mb-1 block text-sm font-medium"
+                          htmlFor={`carousel-banner-${index}-href`}
+                        >
+                          Link tujuan (opsional)
+                        </label>
+                        <input
+                          id={`carousel-banner-${index}-href`}
+                          type="url"
+                          value={banner.href}
+                          disabled={homepageSaving}
+                          onChange={(event) => updateCarouselBanner(index, 'href', event.target.value)}
+                          placeholder="https://..."
+                          className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm"
+                        />
+                        {(banner.image || selectedFile) && (
+                          <button
+                            type="button"
+                            disabled={homepageSaving}
+                            onClick={() => {
+                              updateCarouselBanner(index, 'image', '');
+                              setHomepageFiles((current) => {
+                                const carouselFiles = [...current.carouselBanners];
+                                carouselFiles[index] = null;
+                                return { ...current, carouselBanners: carouselFiles };
+                              });
+                              if (carouselFileRefs.current[index]) carouselFileRefs.current[index].value = '';
+                            }}
+                            className="mt-2 text-xs font-medium text-red-700 hover:underline disabled:opacity-50"
+                          >
+                            Hapus banner ini
+                          </button>
+                        )}
+                      </fieldset>
+                    );
+                  })}
+                </div>
+
+                <h3 className="mb-1 text-base font-semibold text-gray-800">Banner promosi tambahan</h3>
+                <p className="mb-4 text-sm text-gray-600">
+                  Banner kedua dan ketiga tampil terpisah di area promosi homepage.
+                </p>
                 <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
                   {['banner2', 'banner3'].map((key, index) => (
                     <fieldset key={key} className="rounded-lg border border-gray-200 p-4">
@@ -432,7 +585,7 @@ export default function BannerAdminPage() {
                   disabled={homepageSaving}
                   className="mt-5 rounded-lg bg-primary px-6 py-2 font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {homepageSaving ? 'Menyimpan...' : 'Simpan Banner & Media Sosial'}
+                  {homepageSaving ? 'Mengunggah dan menyimpan...' : 'Simpan Pengaturan Homepage'}
                 </button>
               </>
             )}
