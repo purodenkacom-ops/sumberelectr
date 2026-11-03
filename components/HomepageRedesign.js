@@ -57,6 +57,50 @@ export default function HomepageRedesign({
     else window.location.href = url;
   };
 
+  const renderPromoBanner = (banner, index, heightClass) => {
+    const content = banner?.image ? (
+      <Image
+        src={banner.image}
+        alt={`Banner promosi ${index + 2} Purodenka`}
+        fill
+        sizes="(max-width: 1023px) 100vw, (max-width: 1280px) 42vw, 560px"
+        className="bg-gray-100 object-contain"
+      />
+    ) : (
+      <div className={`flex h-full min-h-full items-center px-6 py-4 text-white shadow-sm ${
+        index === 0
+          ? 'bg-gradient-to-r from-red-900 via-red-800 to-red-700'
+          : 'bg-gradient-to-r from-red-700 via-red-600 to-red-700'
+      }`}>
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-red-100">
+            {index === 0 ? 'Butuh bantuan?' : 'Belanja lebih tenang'}
+          </p>
+          <h2 className="mt-1 text-xl font-extrabold">
+            {index === 0 ? 'Konsultasi kebutuhan listrik Anda' : 'Produk asli & bergaransi'}
+          </h2>
+          <p className="mt-1 text-sm text-red-100">
+            {index === 0
+              ? 'Customer Service Purodenka siap membantu memilih produk yang tepat.'
+              : 'Pilihan komponen listrik untuk kebutuhan rumah dan industri.'}
+          </p>
+        </div>
+      </div>
+    );
+
+    return (
+      <div className={`relative ${heightClass} overflow-hidden rounded-sm`}>
+        {banner?.href ? (
+          <a href={banner.href} target="_blank" rel="noopener noreferrer" aria-label={`Buka banner promosi ${index + 2}`} className="absolute inset-0 block h-full">
+            {content}
+          </a>
+        ) : (
+          <div className="h-full">{content}</div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar variant="marketplace" socialLinks={homepageSettings?.socialLinks} />
@@ -74,70 +118,15 @@ export default function HomepageRedesign({
           aria-label="Hubungi customer service"
           className="mt-4"
         >
-          <div className="flex min-h-[96px] items-center justify-between gap-3 overflow-hidden rounded-sm bg-gradient-to-r from-red-900 via-red-800 to-red-700 px-4 py-3 text-white shadow-sm sm:min-h-[112px] sm:px-8 lg:hidden">
-            <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-red-100 sm:text-xs">
-                Butuh bantuan?
-              </p>
-              <h2 className="mt-1 text-sm font-extrabold sm:text-xl">
-                Konsultasi kebutuhan listrik Anda
-              </h2>
-              <p className="mt-1 text-[10px] text-red-100 sm:text-sm">
-                Customer Service Purodenka siap membantu memilih produk yang tepat.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={contactCustomerService}
-              aria-label="Hubungi Customer Service melalui WhatsApp"
-              className="flex h-14 w-14 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md bg-[#25D366] text-white shadow-sm transition hover:bg-[#20bd5a] focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-red-800 sm:h-16 sm:w-16"
-            >
-              <FaWhatsapp className="h-8 w-8 sm:h-9 sm:w-9" aria-hidden="true" />
-              <span className="text-[8px] font-bold sm:text-[9px]">CHAT CS</span>
-            </button>
+          <div className="lg:hidden">
+            {renderPromoBanner(homepageSettings?.banner2, 0, 'h-[180px] sm:h-[220px]')}
           </div>
 
-          <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(180px,0.55fr)] items-stretch gap-3 lg:grid">
+          <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1fr)_96px] items-stretch gap-3 lg:grid">
             {[homepageSettings?.banner2, homepageSettings?.banner3].map((banner, index) => {
-              const content = banner?.image ? (
-                <Image
-                  src={banner.image}
-                  alt={`Banner promosi ${index + 2} Purodenka`}
-                  fill
-                  sizes="(max-width: 1280px) 32vw, 420px"
-                  className="object-cover"
-                />
-              ) : (
-                <div className={`flex h-full min-h-[124px] items-center px-6 py-4 text-white shadow-sm ${
-                  index === 0
-                    ? 'bg-gradient-to-r from-red-900 via-red-800 to-red-700'
-                    : 'bg-gradient-to-r from-red-700 via-red-600 to-red-700'
-                }`}>
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-red-100">
-                      {index === 0 ? 'Butuh bantuan?' : 'Belanja lebih tenang'}
-                    </p>
-                    <h2 className="mt-1 text-xl font-extrabold">
-                      {index === 0 ? 'Konsultasi kebutuhan listrik Anda' : 'Produk asli & bergaransi'}
-                    </h2>
-                    <p className="mt-1 text-sm text-red-100">
-                      {index === 0
-                        ? 'Customer Service Purodenka siap membantu memilih produk yang tepat.'
-                        : 'Pilihan komponen listrik untuk kebutuhan rumah dan industri.'}
-                    </p>
-                  </div>
-                </div>
-              );
-
               return (
-                <div key={`promo-banner-${index + 2}`} className="relative h-full min-h-[124px] overflow-hidden rounded-sm">
-                  {banner?.href ? (
-                    <a href={banner.href} target="_blank" rel="noopener noreferrer" aria-label={`Buka banner promosi ${index + 2}`} className="absolute inset-0 block h-full">
-                      {content}
-                    </a>
-                  ) : (
-                    <div className="h-full">{content}</div>
-                  )}
+                <div key={`promo-banner-${index + 2}`}>
+                  {renderPromoBanner(banner, index, 'h-[200px]')}
                 </div>
               );
             })}
@@ -145,10 +134,10 @@ export default function HomepageRedesign({
               type="button"
               onClick={contactCustomerService}
               aria-label="Hubungi Customer Service melalui WhatsApp"
-              className="flex h-full min-h-[124px] flex-col items-center justify-center gap-2 rounded-sm bg-[#25D366] text-white shadow-sm transition hover:bg-[#20bd5a] focus:outline-none focus:ring-2 focus:ring-green-700 focus:ring-offset-2"
+              className="flex h-20 w-20 shrink-0 flex-col items-center justify-center gap-1 justify-self-center self-center rounded-full bg-[#25D366] text-white shadow-sm transition hover:bg-[#20bd5a] focus:outline-none focus:ring-2 focus:ring-green-700 focus:ring-offset-2"
             >
-              <FaWhatsapp className="h-12 w-12" aria-hidden="true" />
-              <span className="text-xs font-bold">CHAT CUSTOMER SERVICE</span>
+              <FaWhatsapp className="h-10 w-10" aria-hidden="true" />
+              <span className="text-[8px] font-bold">CHAT CS</span>
             </button>
           </div>
         </section>
