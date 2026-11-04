@@ -5,6 +5,8 @@ import { supabase } from '@/utils/supabase';
 import AdminLayout from '../_layout';
 import Image from 'next/image';
 
+const SHOW_LEGACY_BANNER_MANAGER = false;
+
 // Compress images before sending them to the Cloudinary upload endpoint.
 const compressImage = (file, maxWidth = 1200, quality = 0.7) =>
   new Promise((resolve, reject) => {
@@ -58,6 +60,7 @@ const DEFAULT_HOMEPAGE_SETTINGS = {
 
 export default function BannerAdminPage() {
   const router = useRouter();
+  const todayInJakarta = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [banners, setBanners] = useState([]);
@@ -93,7 +96,9 @@ export default function BannerAdminPage() {
     if (authUser.role !== 'admin') { router.push('/unauthorized'); return; }
     setUser(authUser);
     setLoading(false);
-    fetchBanners().catch((err) => setError(err.message || 'Gagal memuat banner.'));
+    if (SHOW_LEGACY_BANNER_MANAGER) {
+      fetchBanners().catch((err) => setError(err.message || 'Gagal memuat banner.'));
+    }
     setHomepageLoading(true);
     fetch('/api/homepage-settings')
       .then(async (response) => {
@@ -239,6 +244,14 @@ export default function BannerAdminPage() {
     setBanners(data || []);
   };
 
+  const getBannerSchemaError = (err) => {
+    const message = err?.message || '';
+    if (message.includes('schema cache') && message.includes('banners')) {
+      return 'Struktur tabel banner belum diperbarui. Jalankan migrations/007_banner_scheduling.sql di Supabase SQL Editor lalu coba lagi.';
+    }
+    return message || 'Gagal menyimpan banner.';
+  };
+
   // Delete banner and images from storage
   const handleDelete = async (id) => {
     if (confirm('Delete this banner?')) {
@@ -318,10 +331,11 @@ export default function BannerAdminPage() {
       }
 
       const bannerData = {
+        image: imageUrls.find((image) => typeof image === 'string' && image.trim()) || null,
         images: imageUrls,
         start_date: form.startDate,
         end_date: form.endDate,
-        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       };
 
       if (editId) {
@@ -329,7 +343,11 @@ export default function BannerAdminPage() {
         if (error) throw error;
         setSuccess('Banner berhasil diubah.');
       } else {
-        const { error } = await supabase.from('banners').insert(bannerData);
+        const { error } = await supabase.from('banners').insert({
+          ...bannerData,
+          id: crypto.randomUUID(),
+          created_at: new Date().toISOString(),
+        });
         if (error) throw error;
         setSuccess('Banner berhasil ditambahkan.');
       }
@@ -344,7 +362,7 @@ export default function BannerAdminPage() {
       setEditId(null);
       setTimeout(() => setSuccess(''), 2500);
     } catch (err) {
-      setError(err.message || 'Gagal menyimpan banner.');
+      setError(getBannerSchemaError(err));
     } finally {
       setUploading(false);
     }
@@ -354,9 +372,11 @@ export default function BannerAdminPage() {
   const handleEdit = (banner) => {
     setForm({
       images: [null, null, null, null, null],
-      startDate: banner.start_date || banner.startDate || '',
-      endDate: banner.end_date || banner.endDate || '',
-      existingImages: banner.images || ['', '', '', '', ''],
+      startDate: String(banner.start_date || banner.startDate || '').slice(0, 10),
+      endDate: String(banner.end_date || banner.endDate || '').slice(0, 10),
+      existingImages: (Array.isArray(banner.images) ? banner.images : [banner.image || ''])
+        .concat(['', '', '', '', ''])
+        .slice(0, 5),
     });
     fileInputRefs.forEach((ref) => ref.current && (ref.current.value = ''));
     setEditId(banner.id);
@@ -591,6 +611,8 @@ export default function BannerAdminPage() {
             )}
           </form>
 
+          {SHOW_LEGACY_BANNER_MANAGER && (
+            <>
           {/* Form Tambah/Ubah Banner */}
           <form
             onSubmit={handleAddOrEditBanner}
@@ -683,7 +705,7 @@ export default function BannerAdminPage() {
                   banners.map((banner) => (
                     <tr key={banner.id} className="border-b border-gray-100">
                       <td className="py-2 px-4 flex gap-2">
-                        {(banner.images || []).map((img, idx) =>
+                        {(Array.isArray(banner.images) ? banner.images : [banner.image || '']).map((img, idx) =>
                           img ? (
                             <Image
                               key={idx}
@@ -713,7 +735,8 @@ export default function BannerAdminPage() {
                         >
                           Delete
                         </button>
-                        {(banner.end_date || banner.endDate) && new Date(banner.end_date || banner.endDate) < new Date() && (
+                        {(banner.end_date || banner.endDate)
+                          && String(banner.end_date || banner.endDate).slice(0, 10) < todayInJakarta && (
                           <span className="ml-2 text-xs text-red-600 font-bold">Expired</span>
                         )}
                       </td>
@@ -723,6 +746,8 @@ export default function BannerAdminPage() {
               </tbody>
             </table>
           </div>
+            </>
+          )}
         </div>
       </div>
     </AdminLayout>
