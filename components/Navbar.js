@@ -134,7 +134,7 @@ const Navbar = ({ variant = 'default', socialLinks = {} }) => {
       window.removeEventListener('resize', updateH);
       if (ro && fixedRef.current) ro.unobserve(fixedRef.current);
     };
-  }, [buyerName, alamat, hideGeo]);
+  }, [buyerName, alamat, hideGeo, variant]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
@@ -166,9 +166,12 @@ const Navbar = ({ variant = 'default', socialLinks = {} }) => {
   if (variant === 'marketplace') {
     return (
       <>
-        <div ref={fixedRef} className="fixed top-0 z-50 w-full bg-white shadow-md">
-          <div className="bg-red-700 text-white">
-            <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-1 text-[10px]">
+        <div
+          ref={fixedRef}
+          className="fixed top-0 z-50 w-full bg-gradient-to-r from-red-700 via-red-700 to-red-800 shadow-md"
+        >
+          <div className="bg-transparent text-white">
+            <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-2 text-xs">
               <div className="flex items-center gap-2">
                 <span>Ikuti kami di</span>
                 {socialLinks.instagram && (
@@ -228,15 +231,15 @@ const Navbar = ({ variant = 'default', socialLinks = {} }) => {
             </div>
           </div>
 
-          <div className="bg-red-800 text-white">
-            <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-2 md:flex-nowrap md:gap-5">
+          <div className="bg-transparent text-white">
+            <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3 md:flex-nowrap md:gap-5">
               <Link href="/" className="flex shrink-0 items-center gap-2" aria-label="Purodenka - Beranda">
                 <Image
                   src="/purodenka-logo.png"
                   alt="Logo Purodenka"
                   width={56}
                   height={52}
-                  className="h-10 w-auto object-contain md:h-12"
+                  className="h-11 w-auto object-contain md:h-14"
                   priority
                 />
                 <span className="whitespace-nowrap text-xs font-extrabold leading-tight tracking-wide sm:text-sm md:text-lg">
@@ -252,7 +255,7 @@ const Navbar = ({ variant = 'default', socialLinks = {} }) => {
                   type="search"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full rounded-sm border border-gray-300 bg-white py-2 pl-3 pr-12 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-red-300"
+                  className="w-full rounded-sm border border-gray-300 bg-white py-3 pl-3 pr-12 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-red-300"
                   placeholder="Cari MCB, kabel, power supply, atau alat listrik..."
                   aria-label="Cari produk"
                   autoComplete="off"
@@ -283,7 +286,7 @@ const Navbar = ({ variant = 'default', socialLinks = {} }) => {
           </div>
 
           <div className="border-b border-gray-200 bg-white">
-            <div className="mx-auto flex max-w-7xl items-center gap-2 px-4 py-1.5 text-[10px] text-gray-600 md:text-xs">
+            <div className="mx-auto flex max-w-7xl items-center gap-2 px-4 py-2 text-[11px] text-gray-600 md:text-xs">
               <span className="shrink-0 font-semibold text-gray-800">Lokasi Anda</span>
               <span className="truncate">
                 {loadingLoc ? 'Mendeteksi lokasi...' : alamat}

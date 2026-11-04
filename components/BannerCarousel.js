@@ -21,6 +21,7 @@ const BannerCarousel = ({ initialImages = EMPTY_BANNERS, fallbackToLegacy = true
   const [images, setImages] = useState(() => normalizeBanners(initialImages));
   const [loading, setLoading] = useState(initialImages.length === 0);
   const [current, setCurrent] = useState(0);
+  const [aspectRatios, setAspectRatios] = useState({});
 
   useEffect(() => {
     const initialBanners = normalizeBanners(initialImages);
@@ -41,10 +42,20 @@ const BannerCarousel = ({ initialImages = EMPTY_BANNERS, fallbackToLegacy = true
         const { data, error } = await supabase.from('banners').select('*');
         if (error) throw error;
         const imageList = [];
+        const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
         (data || []).forEach((row) => {
-          if (Array.isArray(row.images)) {
-            imageList.push(...row.images.filter((image) => typeof image === 'string' && image.trim()));
-          }
+          const startDate = row.start_date ? String(row.start_date).slice(0, 10) : null;
+          const endDate = row.end_date ? String(row.end_date).slice(0, 10) : null;
+          if (
+            row.active === false
+            || (startDate && startDate > today)
+            || (endDate && endDate < today)
+          ) return;
+
+          const rowImages = Array.isArray(row.images) && row.images.length
+            ? row.images
+            : [row.image];
+          imageList.push(...rowImages.filter((image) => typeof image === 'string' && image.trim()));
         });
         setImages(normalizeBanners(imageList));
       } catch (err) {
@@ -75,7 +86,8 @@ const BannerCarousel = ({ initialImages = EMPTY_BANNERS, fallbackToLegacy = true
 
   return (
     <div
-      className="relative h-[clamp(150px,42vw,460px)] w-full overflow-hidden bg-gray-100 sm:rounded-xl"
+      className="relative w-full overflow-hidden bg-white sm:rounded-xl"
+      style={{ aspectRatio: aspectRatios[current] || '16 / 7' }}
       role="region"
       aria-label="Banner utama Purodenka"
       aria-roledescription="carousel"
@@ -89,8 +101,17 @@ const BannerCarousel = ({ initialImages = EMPTY_BANNERS, fallbackToLegacy = true
                 alt={banner.alt || `Banner utama ${index + 1} Purodenka`}
                 fill
                 sizes="100vw"
-                className="object-cover object-center"
+                className="object-contain object-center"
                 priority={index === current}
+                onLoad={(event) => {
+                  const { naturalWidth, naturalHeight } = event.currentTarget;
+                  if (naturalWidth && naturalHeight) {
+                    setAspectRatios((currentRatios) => ({
+                      ...currentRatios,
+                      [index]: naturalWidth / naturalHeight,
+                    }));
+                  }
+                }}
               />
             );
             return (

@@ -172,7 +172,7 @@ export default function HomepageRedesign({
         href={accountHref}
         aria-label={user ? 'Buka akun saya' : 'Log in'}
         title={user ? 'Akun Saya' : 'Log In'}
-        className="fixed right-3 top-44 z-40 flex h-14 w-14 items-center justify-center rounded-full border-2 border-red-800 bg-white p-1.5 shadow-lg transition hover:scale-105 sm:right-5 sm:top-32 sm:h-14 sm:w-14 sm:p-1.5"
+        className="fixed right-3 top-[208px] z-40 flex h-14 w-14 items-center justify-center rounded-full border-2 border-red-800 bg-white p-1.5 shadow-lg transition hover:scale-105 sm:right-5 sm:top-[160px] sm:h-14 sm:w-14 sm:p-1.5"
       >
         <Image
           src="/purodenka-logo.png"
